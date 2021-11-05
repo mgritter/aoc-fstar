@@ -46,6 +46,8 @@ list x:{mem x subset} => list x:{mem x superset}
 I'm not even sure if => is right, how do we prove one type is a subset
 of another type?
 
+I thought about asserting that the membership check always succeeds.
+
 ### Abusing the solver
 
 It seems like we ought to be able to just feed the whole problem to Z3. If instead of a list, the input was a huge type
