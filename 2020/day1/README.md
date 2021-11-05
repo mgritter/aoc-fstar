@@ -50,7 +50,9 @@ of another type?
 
 It seems like we ought to be able to just feed the whole problem to Z3. If instead of a list, the input was a huge type
 
-``x:int{x == 1735 /\ x == 1700 /\ x == 1358 ...}``` 
+```
+x:int{x == 1735 /\ x == 1700 /\ x == 1358 ...}
+``` 
 
 would that work?  Would code that _converted_ the list to a type work?
 Why or why not?
