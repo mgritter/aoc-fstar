@@ -1,0 +1,8 @@
+*~
+
+# binary files
+out
+out/*
+*.hints
+part1
+part2

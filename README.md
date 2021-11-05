@@ -2,6 +2,8 @@
 
 An attempt is made to prove each solution correct, using an appropriate type.
 
+To run the solutions, you will need to replace the include in each Makefile
+with your own installed Makefile.include from the F* distribution.
 
 ## Notes on installing F* on Ubuntu
 
