@@ -215,6 +215,35 @@ type valid_int = x:int{mem x input_set}
 type valid_pair = valid_int * valid_int
 type soln_pair = p:valid_pair{fst p + snd p = 2020}
 
+// Techincal goop: we want to show that every element of input 
+// is in input_set, so input is a list:valid_int.
+let rec if_all_in_set_then_all_in_superset 
+ (#a:eqtype) (l:list a) (s:set a) (super:set a)
+   : Lemma (requires (List.Tot.for_all (fun x -> mem x s)) l /\ (subset s super))
+           (ensures (List.Tot.for_all (fun x -> mem x super)) l)
+ = match l with
+ | [] -> ()
+ | hd :: tl -> if_all_in_set_then_all_in_superset tl s super
+  
+let rec every_element_is_in_set (#a:eqtype) (l:list a)
+ : Lemma (ensures (List.Tot.for_all (fun x -> mem x (as_set l)) l))
+ = match l with
+ | [] -> ()
+ | hd :: tl -> every_element_is_in_set tl;
+        // for_all (fun x -> mem x (as_set tl)) tl
+        if_all_in_set_then_all_in_superset tl (as_set tl) (as_set l)
+        // for_all (fun x -> mem x (as_set l)) tl
+        // SMT does the rest!
+
+let input_list : list valid_int =
+    every_element_is_in_set #int input;
+    // proves forall (mem x (as_set input)), but we don't know 
+    //        forall (mem x input_set) is equivalent yet.
+    // But they are equal, so one is a subset of the other, so we can
+    // re-use the lemma
+    if_all_in_set_then_all_in_superset input (as_set input) input_set;
+    FStar.List.Tot.list_refb #int input
+    
 (*
 // Prove that it exists -- doesn't work
 let _ = assert(exists (soln:soln_pair). true)
@@ -244,21 +273,8 @@ let rec quadratic_search l
   | None -> quadratic_search tl
   | Some soln -> Some soln
 
-// How do we prove that every element of input is in the set created
-// by input?  Seems like it should be a gimme.
-val list_of_valid_elements_aux : list int -> list valid_int
-
-let rec list_of_valid_elements_aux l
-= match l with
-  | [] -> []
-  | hd ::tl -> if (mem hd input_set) 
-    then hd :: (list_of_valid_elements_aux tl)
-    else (list_of_valid_elements_aux tl)
-
-let list_of_valid_elements = list_of_valid_elements_aux input
-    
 let show_soln _ : ML unit =
-  let x = (quadratic_search list_of_valid_elements) in
+  let x = (quadratic_search input_list) in
     match x with
      | None -> print_string "No solution\n"
      | Some soln -> print_string (sprintf "Solution:%d x %d = %d\n" (fst soln) (snd soln) (op_Multiply (fst soln) (snd soln)))

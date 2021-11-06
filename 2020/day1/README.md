@@ -33,20 +33,19 @@ on the tuple.
 
 ### Proving that the list contains only elements of the set created from it
 
-I have no idea how to make this work.  I'm not even sure how we would express
-a lemma about the type of a variable that's already bound.
+The initial version constructed a new list by filtering elements from
+`input` that were not in `input_set`, thereby proving they were all
+`valid_int`s.
 
-My guess is that we could simultaneously create the set and a copy of the
-list, recursively. I think we'd first have to prove that
+The new version has a much longer proof that this obvious fact is true.  It
+proceeds via two lemmas, both proven by recursion on lists:
 
-```
-list x:{mem x subset} => list x:{mem x superset}
-```
+1. If all elements of L are members of S, and Super is a superset of S, then
+   all elements of L are members of Super too.
+2. All elements of L are members of the set constructed by `as_set L`
 
-I'm not even sure if => is right, how do we prove one type is a subset
-of another type?
-
-I thought about asserting that the membership check always succeeds.
+We need to use lemma 1 again to reach the final conclusion, using set equality
+to imply the subset relationship.
 
 ### Abusing the solver
 
