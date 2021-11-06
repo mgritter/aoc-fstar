@@ -202,6 +202,7 @@ let input : list int =
 1552;
 1645]
 
+open FStar.All
 open FStar.Set
 open FStar.IO
 open FStar.Printf
@@ -219,13 +220,21 @@ type soln_pair = p:valid_pair{fst p + snd p = 2020}
 let _ = assert(exists (soln:soln_pair). true)
 *)
 
-val linear_search : x:valid_int -> rest:list valid_int -> (option soln_pair)
+val linear_search : x:valid_int -> rest:list valid_int -> Tot (option soln_pair)
+let combine_to_soln (x:valid_int) (y:valid_int{x+y=2020}) : soln_pair = (x,y)
+let linear_search x rest 
+= FStar.Option.mapTot 
+  (combine_to_soln x)
+  (FStar.List.Tot.find #valid_int (fun y -> x + y = 2020) rest)
+
+(* original version:
 let rec linear_search x rest 
 = match rest with
  | [] -> None
  | hd :: tl -> if x + hd = 2020 
  then Some (x,hd) 
  else linear_search x tl
+*)
 
 val quadratic_search : l:list valid_int -> (option soln_pair) 
 let rec quadratic_search l
@@ -248,12 +257,12 @@ let rec list_of_valid_elements_aux l
 
 let list_of_valid_elements = list_of_valid_elements_aux input
     
-let show_soln _ =
+let show_soln _ : ML unit =
   let x = (quadratic_search list_of_valid_elements) in
     match x with
      | None -> print_string "No solution\n"
      | Some soln -> print_string (sprintf "Solution:%d x %d = %d\n" (fst soln) (snd soln) (op_Multiply (fst soln) (snd soln)))
-  
+
 let main = show_soln()
 
 
