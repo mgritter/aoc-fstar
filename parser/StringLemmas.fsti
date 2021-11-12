@@ -2,7 +2,12 @@ module StringLemmas
 
 open FStar.String
 
-val is_substring (a:string) (b:string) : bool
+val is_prefix (a:string) (b:string) : bool
+val is_suffix (a:string) (b:string) : bool
+val is_substring (a:string) (b:string) : prop
+
+let suffix (b:string) (n:nat{n <= strlen b}) : (x:string{n = strlen x}) =
+  (sub b (strlen b - n) n)
 
 // If two strings have zero length, they are equal.
 val all_strings_of_length_zero_are_equal (s:string{strlen s=0}) (t:string{strlen t=0}) 
@@ -12,8 +17,8 @@ val all_strings_of_length_zero_are_equal (s:string{strlen s=0}) (t:string{strlen
 val substring_of_length_is_equal (s:string) 
  : Lemma (ensures (sub s 0 (strlen s)) = s )
 
-// All strings are substrings of themeselves
-val substring_is_reflexive (s:string)
+// All strings are prefixes of themeselves
+val prefix_is_reflexive (s:string)
  : Lemma (ensures is_substring s s)
 
 // The substring relationship imposes an order on string length
@@ -21,11 +26,23 @@ val substring_is_shorter (a:string) (b:string)
  : Lemma (requires (is_substring a b))
          (ensures (strlen a) <= (strlen b) )
 
-// Taking a shorter substring of a longer substring gives the shorter substring
-val substring_of_substring_is_substring (s:string) (x:nat{strlen s >= x}) (y:nat{y <= x})
+// Prefix of prefix 
+val prefix_of_prefix_is_prefix (s:string) (x:nat{strlen s >= x}) (y:nat{y <= x})
  : Lemma (ensures (sub s 0 y) == (sub (sub s 0 x) 0 y))
+ 
+// Suffix of suffix
+val suffix_of_suffix_is_suffix (s:string) (x:nat{strlen s >= x}) (y:nat{y <= x})
+ : Lemma (ensures (suffix s y) == (suffix (suffix s x) y))
 
-// is_substring is a transitive relationship
+// is_prefix, is_suffix, is_substring are all transitive relationships
+val prefix_transitivity (a:string) (b:string) (c:string)
+ : Lemma (requires (is_prefix a b) /\ (is_prefix b c))
+         (ensures (is_prefix a c)) 
+
+val suffix_transitivity (a:string) (b:string) (c:string)
+ : Lemma (requires (is_suffix a b) /\ (is_suffix b c))
+         (ensures (is_suffix a c)) 
+
 val substring_transitivity (a:string) (b:string) (c:string)
  : Lemma (requires (is_substring a b) /\ (is_substring b c))
          (ensures (is_substring a c)) 
