@@ -3,19 +3,28 @@ module StringLemmas
 open FStar.String
 open FStar.List.Tot
 open FStar.Classical
-     
-// Need to define prefixes to state that the parser consumes
-// a portion of the input and leaves the rest.
-let is_prefix (a:string) (b:string) : bool = 
-  if strlen a > strlen b then false else
-  (sub b 0 (strlen a)) = a
+open FStar.Squash
+open FStar.Tactics
+  
+// This property is used for partially unpacking the existential definition of is_substring
+let is_substring_at (a:string) (b:string) (i : nat): prop = 
+  exists (n:nat). i + n <= strlen b /\ (sub b i n) == a 
 
-let is_suffix (a:string) (b:string) : bool = 
-  if strlen a > strlen b then false else
-  (sub b (strlen b - strlen a) (strlen a)) = a
+// Subtyping relationship
+let prefix_is_substring (a:string) (b:string) :
+  Lemma (requires (is_prefix a b))
+        (ensures (is_substring a b)) =
+        ()
+(*
+    exists_intro
+     (fun (p:(nat*nat){fst p + snd p <= strlen b}) -> (fst p) + (snd p) <= strlen b /\ (sub b (fst p) (snd p)) == a )
+     (0,strlen(a))
+*)
 
-let is_substring (a:string) (b:string) : prop = 
-  exists (i:nat) (n:nat{n+i <=strlen b}) . (sub b i n) == a 
+let suffix_is_substring (a:string) (b:string) :
+  Lemma (requires (is_suffix a b))
+        (ensures (is_substring a b)) =
+        ()
 
 (* Lemmas about sub-lists *)
 
@@ -73,16 +82,6 @@ let substring_is_sublist (s:string) (i:nat) (l:nat{i+l <= strlen s}) :
                  (string_of_list (sublist i l (list_of_string s))))
      = admit()
 
-let prefix_is_substring (a:string) (b:string) 
-  : Lemma (requires (is_prefix a b))
-          (ensures (is_substring a b))
-  = ()
-
-let suffix_is_substring (a:string) (b:string) 
-  : Lemma (requires (is_suffix a b))
-          (ensures (is_substring a b))
-  = ()
-
 // Derived lemmas
 let all_strings_of_length_zero_are_equal (s:string{strlen s=0}) (t:string{strlen t=0}) 
   : Lemma (ensures (s=t)) = 
@@ -92,7 +91,7 @@ let all_strings_of_length_zero_are_equal (s:string{strlen s=0}) (t:string{strlen
     string_of_list_of_string t
 
 let substring_of_length_is_equal (s:string)
- : Lemma (ensures (sub s 0 (strlen s)) = s )
+ : Lemma (ensures (sub s 0 (strlen s)) == s )
    = substring_is_sublist s 0 (strlen s);
      sublist_of_whole_length (list_of_string s);
      // assert( sublist 0 (strlen s) (list_of_string s) = (list_of_string s) );
@@ -125,34 +124,33 @@ let substring_is_shorter (a:string) (b:string)
          (ensures (strlen a) <= (strlen b) )
    = ()
 
+let substring_of_substring_is_substring (s:string) 
+   (p1:nat) (n1:nat{p1+n1 <= strlen s}) 
+   (p2:nat) (n2:nat{p2+n2 <= n1})
+ : Lemma (ensures (sub s (p1+p2) n2) == (sub (sub s p1 n1) p2 n2))
+ = sublist_of_sublist_is_sublist (list_of_string s) p1 n1 p2 n2;
+   //     (sublist (p1+p2) n2 (list_of_string s))
+   // ==  (sublist p2 n2 (sublist p1 n1 (list_of_string s)))
+   // therefore equality still holds when we wrap with s_o_l
+   //     (s_o_l (sublist (p1+p2) n2 (list_of_string s)))
+   // ==  (s_o_l (sublist p2 n2 (sublist p1 n1 (list_of_string s))))
+   // The left side is (sub s (p1+p2) n2)
+   substring_is_sublist s (p1+p2) n2;
+   assert( (sub s (p1+p2) n2) == string_of_list (sublist p2 n2 (sublist p1 n1 (list_of_string s))));
+   // To simplify the right hand side we need to inject a l_o_s/s_o_l pair
+   // in front of (sublist p1 n1 ...)
+   list_of_string_of_list (sublist p1 n1 (list_of_string s));
+   // Then simplify to (sub s (p1+p2) n2 ) == (sub XXXXXXX p2 n2)   
+   substring_is_sublist (string_of_list (sublist p1 n1 (list_of_string s))) p2 n2;
+   substring_is_sublist s p1 n1
+
 let prefix_of_prefix_is_prefix (s:string) (x:nat{strlen s >= x}) (y:nat{y <= x})
  : Lemma (ensures (sub s 0 y) == (sub (sub s 0 x) 0 y))
- = sublist_of_sublist_is_sublist (list_of_string s) 0 x 0 y;
-   //     (sublist 0 y (list_of_string s))
-   // ==  (sublist 0 y (sublist 0 x (list_of_string s)))
-   // therefore 
-   //     (s_o_l (sublist 0 y (list_of_string s)))
-   // ==  (s_o_l (sublist 0 y (sublist 0 x (list_of_string s))))
-   substring_is_sublist s 0 y;
-   // therefore
-   assert( (sub s 0 y) == string_of_list (sublist 0 y (sublist 0 x (list_of_string s))));
-   // To simplify the right hand side we need to inject a l_o_s/s_o_l pair
-   // in front of (sublist 0 x ...)
-   list_of_string_of_list (sublist 0 x (list_of_string s));
-   // Then simplify to (sub s 0 y) == (sub XXXXXXX o y)
-   substring_is_sublist (string_of_list (sublist 0 x (list_of_string s))) 0 y;
-   substring_is_sublist s 0 x
+ = substring_of_substring_is_substring s 0 x 0 y
 
-// TODO: prove via duality instead?
-// Same plan as above
 let suffix_of_suffix_is_suffix (s:string) (x:nat{strlen s >= x}) (y:nat{y <= x})
  : Lemma (ensures (suffix s y) == (suffix (suffix s x) y))
- = sublist_of_sublist_is_sublist (list_of_string s) (strlen s - x) x (x - y) y;
-   substring_is_sublist s (strlen s - x + x - y) y;
-   assert( (sub s (strlen s - y) y) == string_of_list (sublist (x-y) y (sublist (strlen s - x) x (list_of_string s))));
-   list_of_string_of_list (sublist (strlen s - x) x (list_of_string s));
-   substring_is_sublist (string_of_list (sublist (strlen s - x) x (list_of_string s))) (x-y) y;
-   substring_is_sublist s (strlen s - x) x
+ = substring_of_substring_is_substring s (strlen s - x) x (x-y) y
 
 // Lemma: a prefix of a prefix is a prefix
 let prefix_transitivity (a:string) (b:string) (c:string) :
@@ -170,13 +168,34 @@ let suffix_transitivity (a:string) (b:string) (c:string) :
      = suffix_is_shorter a b;
        suffix_of_suffix_is_suffix c (strlen b) (strlen a)
 
+// OK, there's got to be a better way to do this
+// Extract all the values that ensure a subtring b and b substring c, then
+// use our super lemma above.
 let substring_transitivity (a:string) (b:string) (c:string) :
   Lemma (requires (is_substring a b) /\ (is_substring b c))
         (ensures (is_substring a c)) 
-  = admit()
-// TODO
+     = exists_elim 
+        // goal 
+        (is_substring a c)
+        // get the pair implied by (is_substring b c)
+        (Squash.get_proof (is_substring b c))
+        // derivation
+        (fun p1 -> exists_elim 
+           (is_substring a c)  // same goal
+           (Squash.get_proof (is_substring_at b c p1))
+           (fun n1 -> exists_elim
+             (is_substring a c)
+             (Squash.get_proof (is_substring a b))
+             (fun p2 -> exists_elim
+                (is_substring a c)
+                (Squash.get_proof (is_substring_at a b p2))
+                (fun n2 ->
+                   substring_of_substring_is_substring c p1 n1 p2 n2;
+                   exists_intro
+                      (fun (p:(nat*nat){fst p + snd p <= strlen c}) -> (fst p) + (snd p) <= strlen c /\ (sub c (fst p) (snd p)) == a )
+                      (p1+p2,n2)))))
 
-       
+
 // Lemma if a and b are the same length, then if a is a substring of b,
 // they must be equal.
 let substring_equality (a:string) (b:string) :
