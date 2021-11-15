@@ -76,7 +76,7 @@ What's being show above the line is the
 Each is a type assignment in the environment.  The parameters `s` and `t` are shown,
 along with the refined types we specified for them.
 
-`uu___'0` contains the expansion of the existing Lemma we introducted.  In this example,
+``uu___'0`` contains the expansion of the existing Lemma we introducted.  In this example,
 the solver isn't able to finish proving the lemma, because we haven't yet told it anything
 about `t`.  If we add `string_of_list_of_string t` then we get another couple lines:
 
@@ -134,7 +134,7 @@ let f8 : int = synth_by_tactic (fun () -> solve_then (fun () -> fib 8) compute)
 
 As explained in the previous section, we can debug the tactic by inserting a `dump` call.  If we do
 
-```
+```FStar
 let f3 : int = synth_by_tactic (fun () -> dump "hello"; fib 3)
 ```
 
@@ -165,7 +165,7 @@ val pack    : term_view -> Tac term
 ### Quoting and unquoting
 
 The easiest way to create a `term` is by quoting an expression.  This creates a term that is identical to the
-quoted value.  In the example above, you see `(\`1)` used to create a term containing the literal `1`.  
+quoted value.  In the example above, you see ``(\`1)`` used to create a term containing the literal `1`.  
 
 You can also use the form `(quote expr)`.  The backtick is syntactic sugar.
 
@@ -191,7 +191,7 @@ val apply (t : term) : Tac unit
 `apply` is a weird beast. It takes a `term` and attempts to apply it to arguments that are themselves new goals!  This process stops
 when `t arg1 arg2 ... argN` is of the right type for the goal.
 
-That is why `apply`'s only argument in the example above is `(quote +).  The arguments are introduced separted by semicolons, because they
+That is why `apply`'s only argument in the example above is `(quote (+))`.  The arguments are introduced separted by semicolons, because they
 are separate expressions.
 
 Here's an example in slow motion:
