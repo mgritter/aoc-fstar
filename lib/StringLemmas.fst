@@ -85,10 +85,9 @@ let substring_is_sublist (s:string) (i:nat) (l:nat{i+l <= strlen s}) :
 // Derived lemmas
 let all_strings_of_length_zero_are_equal (s:string{strlen s=0}) (t:string{strlen t=0}) 
   : Lemma (ensures (s=t)) = 
-    // assert( list_of_string s = [] );
-    // assert( list_of_string t = [] );
     string_of_list_of_string s;
     string_of_list_of_string t
+    
 
 let substring_of_length_is_equal (s:string)
  : Lemma (ensures (sub s 0 (strlen s)) == s )
