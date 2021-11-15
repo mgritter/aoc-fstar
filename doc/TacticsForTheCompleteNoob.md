@@ -92,7 +92,7 @@ even before using any real tactics.
 ### What are all those other variables in the output?
 
 The `Lemma` shorthand is actually an "effect", and some of the variables behind its
-implementation in terms of the `Pure` effect are shown.  The `p', `uu___` and 'pure_result'
+implementation in terms of the `Pure` effect are shown.  The `p`, `uu___` and 'pure_result'
 type judgements come from the `Pure` effect that backs `Lemma`.  The definitions
 are:
 
