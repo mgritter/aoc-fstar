@@ -55,7 +55,7 @@ let all_strings_of_length_zero_are_equal (s:string{strlen s=0}) (t:string{strlen
 The dump output looks like this:
 
 ```
-here @ ...-fstar/lib/StringLemmas.fst(89,4-89,20)  Sun Nov 14 00:59:14 2021
+here @ ...-fstar/lib/StringLemmas.fst(89,4-89,20)
 Goal 1/1
 s: s: string{strlen s = 0}
 t: t: string{strlen t = 0}
@@ -141,7 +141,7 @@ let f3 : int = synth_by_tactic (fun () -> dump "hello"; fib 3)
 We get something like this, showing the goal (with no known type bindings) is to create an `int`:
 
 ```
-hello @ …ples/tactics/SolveThen.fst(22,42-22,54)  Mon Nov 15 01:06:22 2021
+hello @ …ples/tactics/SolveThen.fst(22,42-22,54)
 Goal 1/1
 --------------------------------------------------------------------------------
 int
@@ -150,26 +150,25 @@ int
 
 If we place the `dump` after `fib 3`, then the goal is empty because it's already been satisfied.
 
-The type of an F* expression or statement is `term`.  But, `term` is a boxed type (a monad, technically), so it
-can't be accessed directly.  Instead, we will use the following functions from `FStar.Tactics.Builtin.fsti`
-to access a `term` via a `term_view`, or create a `term` from a `term_view`.
-
-```FStar
-(** View a term in a fully-named representation *)
-val inspect : term -> Tac term_view
-
-(** Pack a term view on a fully-named representation back into a term *)
-val pack    : term_view -> Tac term
-```
+The type of an F* expression or statement is `term`. Various methods exist for creating terms; the example above shows
+quoting and application.
 
 ### Quoting and unquoting
 
 The easiest way to create a `term` is by quoting an expression.  This creates a term that is identical to the
-quoted value.  In the example above, you see ``(\`1)`` used to create a term containing the literal `1`.  
+quoted value.  In the example above, you see ``(`1)`` used to create a term containing the literal `1`.  
 
 You can also use the form `(quote expr)`.  The backtick is syntactic sugar.
 
 We can also switch from a term back to a value, using `unquote` from the `Tactics` library.
+
+`quote` is a static quotation: all terms are represented as-is, so a variable `x` becomes a free variable, even if it is defined
+in context.
+
+`dquote` is a dynamic quotation: every free variable is replaced by its current values first.
+
+Finally, Meta-F* provides "anti-quotations", which substitute a term into a quoted value, represented by `` `#x `` where `x` is an expression
+of type `term`.  For example, `` `(1 + `#e) `` returns the term consisting of the application of `+` to the constant `1` and the term `e`.
 
 ### Terms to Tac units
 
@@ -204,7 +203,7 @@ let three : int = synth_by_tactic three_gen
 
 Our start goal is any `int`
 ```
-a @ …fstar/doc/ExampleSynth.fst(14,29-14,37)  Mon Nov 15 01:45:02 2021
+a @ …fstar/doc/ExampleSynth.fst(14,29-14,37)  
 Goal 1/1
 --------------------------------------------------------------------------------
 int
@@ -215,7 +214,7 @@ int
 After `apply` we have two goals (but `dump` will only show one of them, we need to use `dump_all`):
 
 ```
-b @ …fstar/doc/ExampleSynth.fst(14,72-14,89)  Mon Nov 15 01:45:02 2021
+b @ …fstar/doc/ExampleSynth.fst(14,72-14,89)  
 Goal 1/4 (new_problem: logical guard for TOP)
 --------------------------------------------------------------------------------
 Type0
@@ -240,7 +239,7 @@ i_only_add_threes (*?u33*) _ (*?u35*) _
 After we satisfy the goal for `x` we are left with just one goal, but `exact` doesn't actually satisfy it:
 
 ```
-c @ …tar/doc/ExampleSynth.fst(14,110-14,118)  Mon Nov 15 01:45:02 2021
+c @ …tar/doc/ExampleSynth.fst(14,110-14,118)  
 Goal 1/1
 --------------------------------------------------------------------------------
 squash ((*?u33*) _ + 1 = 3 == true)
@@ -269,7 +268,129 @@ let three : int = synth_by_tactic three_gen_2
 
 The final `exact (quote ())` is because the lemma has an argument of type `unit`.
 
-## Automating simple recursion
+### Dumping the abstract syntax tree
+
+With these tools, we can bootstrap our knowledge of "how do I build X" by getting a tactic to print it for us in terms of the abstract
+syntax tree.  We can use `dump` as the example above, or `print` which only shows the string and not the context.
+
+```FStar
+open FStar.Tactics
+
+let show_an_arrow_expr () : Tac unit =
+  let t = (quote (fun (x:int) (y:int) -> x + y )) in
+     print "Term: ";
+     print (term_to_ast_string t);
+     exact t
+
+let addition : int -> int -> int = synth_by_tactic show_an_arrow_expr
+```
+
+gives output
+
+```
+TAC>> Term: 
+TAC>> Tv_Abs ((x:Prims.int), Tv_Abs ((y:Prims.int), Tv_App (Tv_App (Tv_FVar Prims.op_Addition, Tv_Var (x:Prims.int)), Tv_Var (y:Prims.int))))
+```
+
+Each of the given constructors can be found in `FStar.Reflection.Data.fsti`.  But why are they prefixed with `Tv_`?
+
+### Term views
+
+The `term` type represents variables using a [locally nameless representation](https://chargueraud.org/research/2009/ln/main.pdf).
+What this means is that bound variables (function arguments) are given a "de Bruijn index" rather than a lexical name.  The advantage:
+F* doesn't need to do alpha-renaming by converting variable names to avoid collisions.  The disadvantage: terms end up numbered by how many
+abstractions (lambdas) they are from the start of the expression, so they still do have to be renumbered, and it's hard to read.  Thus, any
+output you see will probably have gone to some lengths to avoid showing you the de Bruijn index at all!
+
+So, while you can perform operations on terms directly, if you inspect a `term` it is via a `term_view`.  You can convert back and forth
+with a pair of functions:
+
+```FStar
+(** View a term in a fully-named representation *)
+val inspect : term -> Tac term_view
+
+(** Pack a term view on a fully-named representation back into a term *)
+val pack    : term_view -> Tac term
+```
+
+> The term_view type provides the “one-level-deep” structure of a term: metaprograms must call
+> `inspect` to reveal the structure of the term, one constructor at
+> a time. The view exposes three kinds of variables: bound variables, `Tv_BVar`;
+> named local variables `Tv_Var`; and top-level fully qualified names, `Tv_FVar`.
+> Bound variables and local variables are distinguished since the internal abstract
+> syntax is locally nameless. For metaprogramming, it is usually simpler to use a
+> fully-named representation, so we provide `inspect` and `pack` functions that open
+> and close binders appropriately to maintain this invariant. Since opening binders
+> requires freshness, `inspect` has effect `Tac`. [Martinez et al 2019](https://fstar-lang.org/papers/metafstar/) 
+
+### Factory functions for terms
+
+While we can use `pack` on a expression created by the `term_view` constructors, the `Tactics` library also provides a large set of `mk_XXX`
+functions to construct terms directly; these are found in `FStar.Tactics.Derived.fst` 
+
+#### Application
+
+```FStar
+val mk_app (t : term) (args : list argv) : Tot term
+```
+
+`mk_app` creates an application.  An `argv` is pair consisting of a `term` and a qualification, which may be
+`Q_Implicit` for implicit arguments, `Q_Explicit` for explicit arguments, or `Q_Meta of term` which doesn't seem to be used much.
+
+If all the arguments are explicit then you can use
+
+```FStar
+val mk_e_app (t : term) (args : list term) : Tot term 
+```
+
+#### Basic data types
+
+```FStar
+val mk_stringlit (s : string) : term
+```
+
+Creates a string literal from a string.
+
+```FStar
+val mk_strcat (t1 t2 : term) : term
+```
+
+Creates an expression of the form `(strcat t1 t2)`.
+
+```FStar
+val mk_cons (h t : term) : term
+```
+
+Creates an expression of the form `(Cons h t)`
+
+```FStar
+val mk_cons_t (ty h t : term) : term
+```
+
+If you need to specify the type of a cons-expression, this variant takes the type `ty`.
+
+```FStar
+val rec mk_list (ts : list term) : term
+```
+
+Create a list literal.
+
+```FStar
+val mktuple_n (ts : list term) : term
+```
+
+Create a tuple (up to arity 8) from a list of terms inorder.
+
+```FStar
+val mkpair (t1 t2 : term) : term
+```
+
+Create a tuple of size two, a term of the form `(t1, t2)`.
+
+
+
+
+## Automating simple induction proofs
 
 In the F* tutorial, you were given a function like this:
 
@@ -298,7 +419,7 @@ let factorial_is_positive_auto x =
 
 ### Understanding what the solver actually did
 
-What did the Z3 solver actually see in order to check the original lemma?  We can ask FStar
+What did the Z3 solver actually see in order to check the original lemma?  We can ask F*
 to dump all its queries to the Z3 solver
 
 ```
@@ -306,7 +427,7 @@ fstar.exe --log_types --log_queries Example.fst
 ```
 
 If we look in the resulting `queries-Example.smt2` file there's a lot of goop.  For example,
-here's the query FStar performed to ensure that the subtraction in the factorial definition
+here's the query F* performed to ensure that the subtraction in the factorial definition
 resulted in a Nat (and that the recursion terminated!)
 
 ```
@@ -356,7 +477,7 @@ let factorial_is_positive2 x =
 The "before" dump shows our goal:
 
 ```
-before @ .../aoc-fstar/doc/Example.fst(16,2-16,15)  Sun Nov 14 02:17:58 2021
+before @ .../aoc-fstar/doc/Example.fst(16,2-16,15)
 Goal 1/1
 x: nat
 --------------------------------------------------------------------------------
@@ -367,10 +488,8 @@ squash (factorial x > 0)
 The "after" dump shows that it has been satisfied; no goals remain.
 
 ```
-after @ .../aoc-fstar/doc/Example.fst(18,2-18,14)  Sun Nov 14 02:23:46 2021
+after @ .../aoc-fstar/doc/Example.fst(18,2-18,14) 
 ```
-
-The backquote `\`x` is syntatic sugar for `(quote x)` which creates a `term` from an expression.
 
 ### Writing a lemma
 
@@ -389,7 +508,7 @@ let factorial_is_positive3 (x:nat) =
   assert (factorial x > 0) by appeal_to_new_lemma()
 ```
 
-We get a warning from FStar:
+We get a warning from F*:
 
 ```
 (Warning 242) Definitions of inner let-rec temporary_lemma and its enclosing top-level letbinding are not encoded to the solver, you will only be able to reason with their types (Also see: Example.fst(31,10-31,25))
@@ -398,7 +517,7 @@ We get a warning from FStar:
 and a monster goal in "after"
 
 ```
-after @ …k/aoc-fstar/doc/Example.fst(35,4-35,16)  Sun Nov 14 15:18:57 2021
+after @ …k/aoc-fstar/doc/Example.fst(35,4-35,16)  
 SMT goal 1/1
 x: nat
 --------------------------------------------------------------------------------
@@ -446,7 +565,7 @@ but the proof succeeds.
 Let's take a detour and solve a simpler case: what if we only wanted to show our inequality
 for a specific value?  If we have the inductive step as a lemma:
 
-```
+```FStar
 let factorial_step (x:nat{x>0}) 
  : Lemma (requires (factorial (x-1) > 0))
          (ensures (factorial x > 0))
@@ -455,7 +574,7 @@ let factorial_step (x:nat{x>0})
 
 then we can apply it a constant number of times:
 
-```
+```FStar
 let rec constant_depth (depth:nat) : Tac unit =
   if depth = 0 then 
      dump "depth 0"
@@ -491,7 +610,13 @@ But this is sort of silly.  Trying it for general depth will cause an error:
         Example.constant_depth (n - 1))) "(((proofstate)))"`
 ```
 
-###
+### Building the lemma as a term
+
+TODO
+
+### Sending the induction to the SMT solver
+ 
+TODO
 
 ## What's in the standard library?
 
