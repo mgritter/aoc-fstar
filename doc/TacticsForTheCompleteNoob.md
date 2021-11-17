@@ -158,17 +158,20 @@ quoting and application.
 The easiest way to create a `term` is by quoting an expression.  This creates a term that is identical to the
 quoted value.  In the example above, you see ``(`1)`` used to create a term containing the literal `1`.  
 
-You can also use the form `(quote expr)`.  The backtick is syntactic sugar.
-
 We can also switch from a term back to a value, using `unquote` from the `Tactics` library.
 
-`quote` is a static quotation: all terms are represented as-is, so a variable `x` becomes a free variable, even if it is defined
+A term preceded by `` ` `` is a static quotation: all terms are represented as-is, so a variable `x` becomes a free variable, even if it is defined
 in context.
 
-`dquote` is a dynamic quotation: every free variable is replaced by its current values first.
+`quote` is a dynamic quotation: every free variable is replaced by its current values first.  (In the Meta-F* paper, it says that the
+keyword is `dquote` but this does not appear in the current source code.)
 
 Finally, Meta-F* provides "anti-quotations", which substitute a term into a quoted value, represented by `` `#x `` where `x` is an expression
 of type `term`.  For example, `` `(1 + `#e) `` returns the term consisting of the application of `+` to the constant `1` and the term `e`.
+
+The alternate antiquote `` `@x `` works when `x` is a value instead of a term.
+
+This is not used anywhere in F*.
 
 ### Terms to Tac units
 
@@ -387,8 +390,119 @@ val mkpair (t1 t2 : term) : term
 
 Create a tuple of size two, a term of the form `(t1, t2)`.
 
+#### Arrow types and abstractions
 
+```FStar
+val mk_arr (bs: list binder) (cod : comp) : Tac term
+val mk_tot_arr (bs: list binder) (cod : term) : Tac term
+val mk_tot_arr_ln (bs: list binder) (cod : term) : Tot term 
+```
 
+These three functions create an arrow type.  `binders` are function arguments, while `comp` is the effect type.
+The corresponding `comp_view` has constructors for total functions, `Lemma`s, and general effects.  The return type is part
+of `comp`.
+
+`mk_arr` fails explicitly if you try to give it an empty list of arguments.  `mk_tot_arr` instead assumes that the binder list is nonempty,
+so presumably it fails in a less-explicit fashion.  `mk_tot_arr_ln` has the same definition, execpt that effect `Tot` instead of `Tac`.
+
+TODO: advice on when to use each?  Or is this merely a library design bug?
+
+```FStar
+var mk_abs (args : list binder) (t : term) : Tac term
+```
+
+`mk_abs` creates an "abstraction", i.e., a `fun` term or lambda expression.
+
+### Binders, how do they work?
+
+A "binder" is a variable binding in an abstraction, i.e., a function parameter.
+
+```FStar
+val inspect_binder : binder -> bv * (aqualv * list term)
+val pack_binder    : bv -> aqualv -> list term -> binder
+```
+
+`bv` is a bound variable.  `aqualv` is the `Q_Implicit` or `Q_Explicit` we saw above that are used when performing a function application.
+But what is the list of terms?  It appears to be "attributes", but... comments in the files suggest this isn't common.
+
+```
+let binder_to_string (b : binder) : string =
+    bv_to_string (bv_of_binder b) //TODO: print aqual, attributes
+```
+
+Inside the `bv` is a name, index, and type:
+
+```
+type bv_view = {
+    bv_ppname : string;
+    bv_index : int;
+    bv_sort : typ;
+}
+```
+
+You can use `name_of_bv` and `type_of_bv` to extract these directly from a `bv`.
+
+### Example: modifying a function.
+
+Let's take a constant function, and synthesize a function that has double its value.  The tactic will fail if
+the function body is not a constant integer.
+
+How do we match a function?  Piece by piece, painfully.  (This is why there's a pattern-matching engine implemented in
+`FStar.Tactics.PatternMatching`.)  Here's the code to make sure that our term is an abstraction, and that its body is
+an integer constant:
+
+```FStar
+// Match fun x -> <constant integer>
+let match_constant (t:term) : Tac int =
+  match inspect t with
+  | Tv_Abs binder body -> 
+     ( print ("binder: " ^ (binder_to_string binder));
+       print ("body: " ^ (term_to_ast_string body));
+       match body with 
+     | Tv_Const (C_Int v) -> v
+     | _ -> fail "not an integer constant"
+     )
+  | _ -> fail "not an abtraction"
+```
+
+Now, how do we get the function we want to operate on?  One way would be quoting it before giving it to the tactic, but that's somewhat
+unwieldly. Instead, we can look up the value passed in (a variable) in the environment.
+
+```FStar
+val rewrite_constant : (int->int)  -> Tac unit
+let rewrite_constant f = 
+  let t1 = (quote f) in
+    print ("original term: " ^ (term_to_ast_string t1));
+    let t2 = norm_term_env (top_env()) [delta] t1 in
+      print ("after delta: " ^ (term_to_ast_string t2));    
+      let orig_int = match_constant t2 in
+        (exact (quote (fun x -> (op_Multiply orig_int 2))))
+```
+
+Here, `(quote f)` produces the dynamic value of the parameter, but as we'll see, that only goes one layer down.  It binds to the name of the
+function that gets passed in, not it content.  So, the next step is to apply normalization (the same thing F* would do while evaluating!).
+the `norm_term_env` takes an environment (an `env`), a list of normalization steps to apply, and a `term`.  It then applies those steps
+to the term; in this case we use `delta` which "unfolds names." We might pick something like `primops` to evaluate any arithmetic, if we wanted
+to handle more complicated constant expressions.
+
+Once we've extracted the constant value, creating the function is straightforward with dynamic quoting.
+
+```FStar
+let a (x:int) : int = 5
+
+let foo: int->int = synth_by_tactic (fun () -> rewrite_constant a)
+
+let _ = assert( foo 3 = 10 )
+```
+
+The output:
+
+```
+TAC>> original term: Tv_FVar ExampleRewrite.a
+TAC>> after delta: Tv_Abs ((x:Prims.int), C_Int 5)
+TAC>> binder: (x:Prims.int)
+TAC>> body: C_Int 5
+```
 
 ## Automating simple induction proofs
 
