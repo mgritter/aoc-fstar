@@ -841,7 +841,7 @@ Perhaps I am mistaken.  But https://github.com/FStarLang/FStar/issues/1419 has a
 
 ### Can we create a lemma from scratch?
 
-Can we recognize the goal, construct a Lemma using reflection as in the previous example, and apply it?
+Can we recognize the goal, construct a Lemma using reflection as in the previous working example, and apply it?
 
 This seems difficult for a couple reasons:
   * Unquoting only works in certain places; it looks like a restriction on the desugaring process. Whatever the cause, something
@@ -964,7 +964,7 @@ let nat_induction_tac () : Tac unit =
 With these in hand, we can create an abstraction of the correct type, and apply it to
 `nat_induction` to get the lemma that we need.  Here's the whole tactic:
 
-```
+```FStar
 let rec nat_induction (p : nat -> Type) (n:nat)
   : Lemma (requires p 0 /\ (forall (x:nat) . ( x > 0 /\ p (x-1) ) ==> p x ))
     (ensures p n)
