@@ -57,18 +57,28 @@ let rec constant_depth (depth:nat) : Tac unit =
 let factorial_is_positive4 = 
   assert (factorial 5 > 0) by (constant_depth 5)
 
-(*
-// What if we apply it only once?
+// Proof using a lemma created as a term
 
-let single_step (n:nat) : Tac unit =
-   cases_bool (quote (n > 0));
-   dump "after cases";
-   let _ = implies_intro() in
-     dump "after implies";
-     apply_lemma (`factorial_step);
-     dump "after lemma"
+let appeal_to_new_lemma2 () : Tac unit =
+  dump "before";
+  let new_lemma=`(let rec nl (y:nat) : Lemma(factorial y > 0 == true) = if y = 0 then () else nl (y-1) in nl) in 
+      apply_lemma new_lemma;
+      dump "after"
 
-let factorial_is_positive5 (n:nat{n<2}) = 
-  assert (factorial n > 0) by single_step n
-*)
+let factorial_is_positive5 (n:nat) = 
+  assert (factorial n > 0) by appeal_to_new_lemma2()
 
+// Attempt Proof using a false lemma
+
+let appeal_to_false_lemma () : Tac unit =
+  dump "before";
+  let new_lemma=`(let rec nl (y:nat) : Lemma(factorial y > 120 == true) = if y = 0 then () else nl (y-1) in nl) in 
+      apply_lemma new_lemma;
+      dump "after"
+
+[@@expect_failure]
+let factorial_is_positive6 (n:nat) = 
+  assert (factorial n > 120) by appeal_to_false_lemma()
+
+
+    

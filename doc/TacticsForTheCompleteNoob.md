@@ -171,8 +171,6 @@ of type `term`.  For example, `` `(1 + `#e) `` returns the term consisting of th
 
 The alternate antiquote `` `@x `` works when `x` is a value instead of a term.
 
-This is not used anywhere in F*.
-
 ### Terms to Tac units
 
 The type of `fib` in the example above is not `Tac term`, it is `Tac unit`. That is because it's a tactic that satisfies
@@ -295,6 +293,32 @@ TAC>> Term:
 TAC>> Tv_Abs ((x:Prims.int), Tv_Abs ((y:Prims.int), Tv_App (Tv_App (Tv_FVar Prims.op_Addition, Tv_Var (x:Prims.int)), Tv_Var (y:Prims.int))))
 ```
 
+Here's a more complicated complicated example:
+
+```FStar
+let rec f (x:nat) : nat = if x = 0 then 2 else 3 + f (x - 1) in f(5)
+```
+
+parses as
+
+```
+Tv_Let (
+  true,
+  (f:_),
+  Tv_Abs (
+    (x:Prims.nat),
+    Tv_Match (
+      Tv_App (Tv_App (Tv_FVar Prims.op_Equality, Tv_Var (x:Prims.nat)), C_Int 0),
+      None,
+      [(_pat, C_Int 2);
+       (_pat, Tv_App (
+           Tv_App (Tv_FVar Prims.op_Addition, C_Int 3),
+	   Tv_App (Tv_Var (f:_),
+	           Tv_App (Tv_App(Tv_FVar Prims.op_Subtraction, Tv_Var (x:Prims.nat)),
+			   C_Int 1))))])),
+  Tv_App (Tv_Var (f:_), C_Int 5))
+```
+
 Each of the given constructors can be found in `FStar.Reflection.Data.fsti`.  But why are they prefixed with `Tv_`?
 
 ### Term views
@@ -389,6 +413,8 @@ val mkpair (t1 t2 : term) : term
 ```
 
 Create a tuple of size two, a term of the form `(t1, t2)`.
+
+(Note that the latter two depart from convention by not having an understore after `mk`.)
 
 #### Arrow types and abstractions
 
@@ -726,11 +752,302 @@ But this is sort of silly.  Trying it for general depth will cause an error:
 
 ### Building the lemma as a term
 
-TODO
+This still isn't generalized to other cases, but we can build the lemma as a term using quoting:
 
-### Sending the induction to the SMT solver
+```FStar
+let appeal_to_new_lemma2 () : Tac unit =
+  dump "before";
+  let new_lemma=`(let rec nl (y:nat) : Lemma(factorial y > 0 == true) = if y = 0 then () else nl (y-1) in nl) in 
+      apply_lemma new_lemma;
+      dump "after"
+
+let factorial_is_positive5 (n:nat) = 
+  assert (factorial n > 0) by appeal_to_new_lemma2()
+```
+
+This time we have to give F* a little help by converting the Lemma contents from a `bool` (the result of the comparison) to a
+`Type`, specifically an equality type.
+
+Our familiar-looking monster goal is back, but SMT can handle it.
+
+```
+after @ …k/aoc-fstar/doc/Example.fst(66,6-66,18)  Wed Nov 17 02:02:28 2021
+SMT goal 1/1
+n: nat
+--------------------------------------------------------------------------------
+squash (forall (y: nat)
+      (nl: (y: nat{y << y} -> FStar.Pervasives.Lemma (ensures factorial y > 0 == true))).
+      (*could not prove post-condition*)
+      forall (p: pure_post unit).
+        (forall (pure_result: unit). factorial y > 0 == true ==> p pure_result) ==>
+        (forall (any_result: nat).
+            y == any_result ==>
+            (forall (any_result: int).
+                0 == any_result ==>
+                (forall (any_result: bool).
+                    y = 0 == any_result ==>
+                    (forall (k: pure_post unit).
+                        (forall (x: unit). {:pattern guard_free (k x)} p x ==> k x) ==>
+                        (y = 0 == true ==> (forall (any_result: unit). k any_result)) /\
+                        (~(y = 0 = true) ==>
+                          (forall (b: bool).
+                              y = 0 == b ==>
+                              y - 1 >= 0 /\ y - 1 << y /\
+                              (forall (return_val: y: nat{y << y}).
+                                  return_val == y - 1 ==>
+                                  (forall (pure_result: unit).
+                                      factorial (y - 1) > 0 == true ==> k pure_result)))))))))
+(*?u140*) _
+```
+
+
+But how worried should we be about "could not prove post-condition"?
+
+Well, if we try a false lemma, the type-checker does catch it!
+
+```FSTar
+let appeal_to_false_lemma () : Tac unit =
+  dump "before";
+  let new_lemma=`(let rec nl (y:nat) : Lemma(factorial y > 120 == true) = if y = 0 then () else nl (y-1) in nl) in 
+      apply_lemma new_lemma;
+      dump "after"
+
+let factorial_is_positive6 (n:nat) = 
+  assert (factorial n > 120) by appeal_to_false_lemma()
+```
+
+```
+(Error 19) could not prove post-condition; The SMT solver could not prove the query, try to spell your proof in more detail or increase fuel/ifuel
+```
+
+### Can we send the induction to the SMT solver?
  
-TODO
+Instead of writing a lemma, can we just transform the goal into something simliar to what the lemma produces?
+
+The answer appears to be *no*.  For the clearest example of what's going wrong, consider the following Lemma, which doesn't type-check.
+
+```FStar
+let half_induction (n:nat) : Lemma
+  (requires (n == 0) ==> (factorial 0 > 0 == true ) /\
+            (n > 0 ) ==> (factorial (n-1) > 0 == true ==> factorial n > 0 == true))
+  (ensures (factorial n > 0))
+  = ()
+```
+
+It seems like F* knows how to type-check a recursive function, but it does not recognize induction over the natural numbers when it appears.
+So, it can translate a recursively-defined Lemma in a sound way, but that capability doesn't appear to be available to tactics.
+
+Perhaps I am mistaken.  But https://github.com/FStarLang/FStar/issues/1419 has a one-word checklist item for "induction".
+
+### Can we create a lemma from scratch?
+
+Can we recognize the goal, construct a Lemma using reflection as in the previous example, and apply it?
+
+This seems difficult for a couple reasons:
+  * Unquoting only works in certain places; it looks like a restriction on the desugaring process. Whatever the cause, something
+  like the following does not seem to work: 
+
+```FStar
+let lemma = (`let rec foo (n:nat) : Lemma(`#mygoal) ...)
+```
+
+  * The `Tv_Let` term view constructor e has fields for whether it is recursive or not, a set of attributes, the binding variable, the definition,
+  and the body of the statement.  But `attrs` seems to be always empty.
+  
+``` Fstar
+type term_view =
+...
+| Tv_Let    : recf:bool -> attrs:(list term) -> bv:bv -> def:term -> body:term -> term_view
+```
+
+Something like
+
+```FStar
+`(let f (x:nat) : Lemma( x + 1 = 1 + x ) = () in f)
+```
+
+gets printed as
+
+```
+TAC>> Tv_Let (false, (f:_), Tv_Abs ((x:Prims.nat), C_Unit), Tv_Var (f:_))
+```
+
+All the type annotation has disappeared, somewhere.  Perhaps a better understanding of how the type annotation is implemented would help,
+but I don't have that.
+
+
+### A new hope
+
+The following Lemma _does_ type-check in F*:
+
+```FStar
+let rec nat_induction (p : nat -> Type) (n:nat)
+  : Lemma (requires p 0 /\ (forall (x:nat) . ( x > 0 /\ p (x-1) ) ==> p x ))
+    (ensures p n)
+  = if n = 0 then () else nat_induction p (n-1)
+```
+
+So, if we can recognize the goal and write it as an abstraction, then we can apply this theorem to many different goals.  Let's build
+the pieces one by one.
+
+### Examining the current goal
+
+The `cur_goal` function lets us example what we're trying to prove:
+
+```FStar
+(** [cur_goal] returns the current goal's type *)
+let cur_goal () : Tac typ = goal_type (_cur_goal ())
+```
+
+We can take that type and unwrap it from its 'squash', like this, using pattern-matching on the application.  The `squash_qn` is a constant
+that is equal to `["Prims", "squash"]`, the fully qualified name of the `squash` function.
+
+```FStar
+let access_type_in_squash (t:typ) : Tac term =
+  match inspect t with 
+  | Tv_App hd a -> 
+    begin
+    match inspect hd with
+    | Tv_FVar f ->
+       if inspect_fv f = squash_qn then
+          fst a
+       else
+          fail "Not a squash type"
+    | _ -> fail "Not a squash type"
+    end
+  | _ -> fail "Not a squash type"
+
+let nat_induction_tac () : Tac unit =
+     let term_to_prove = access_type_in_squash (cur_goal()) in (
+       print ("goal type = " ^ term_to_string( term_to_prove ) );
+          ...
+```
+
+### Examining the current environment
+
+The `curr_binder` function lets us look at the binders (the type context) of the environment:
+
+```FStar
+(** [cur_binders] returns the list of binders in the current goal. *)
+let cur_binders () : Tac binders =
+    binders_of_env (cur_env ())
+```
+
+From this we can learn the name and type of any arguments to our type.  Recall, when we're starting out, our goal looks like this:
+
+```
+proof-state: State dump @ depth 1 (before):
+Location: ExampleInduction.fst(49,19-49,32)
+Goal 1/1:
+(n: Prims.nat) |- _ : Prims.squash (ExampleInduction.factorial n > 0)
+```
+
+So, we can check that there's exactly one (and could check that its type is `nat`) like this:
+
+```FStar
+let induction_binder () : Tac binder =
+  match cur_binders() with
+  | [] -> fail "No variable in environment"
+  | hd :: [] -> hd
+  | hd :: tl -> fail "More than one variable in environment"
+
+let nat_induction_tac () : Tac unit =
+     let term_to_prove = access_type_in_squash (cur_goal()) in (
+       print ("goal type = " ^ term_to_string( term_to_prove ) );
+       let binder = induction_binder() in
+         print ("binder = " ^ binder_to_string( binder) )
+            ...
+```
+
+### Applying our super-lemma
+
+With these in hand, we can create an abstraction of the correct type, and apply it to
+`nat_induction` to get the lemma that we need.  Here's the whole tactic:
+
+```
+let rec nat_induction (p : nat -> Type) (n:nat)
+  : Lemma (requires p 0 /\ (forall (x:nat) . ( x > 0 /\ p (x-1) ) ==> p x ))
+    (ensures p n)
+  = if n = 0 then () else nat_induction p (n-1)
+
+let access_type_in_squash (t:typ) : Tac term =
+  match inspect t with 
+  | Tv_App hd a -> 
+    begin
+    match inspect hd with
+    | Tv_FVar f ->
+       if inspect_fv f = squash_qn then
+          fst a
+       else
+          fail "Not a squash type"
+    | _ -> fail "Not a squash type"
+    end
+  | _ -> fail "Not a squash type"
+
+let induction_binder () : Tac binder =
+  match cur_binders() with
+  | [] -> fail "No variable in environment"
+  | hd :: [] -> hd
+  | hd :: tl -> fail "More than one variable in environment"
+
+let nat_induction_tac () : Tac unit =
+     let term_to_prove = access_type_in_squash (cur_goal()) in (
+       print ("goal type = " ^ term_to_string( term_to_prove ) );
+       let binder = induction_binder() in
+         print ("binder = " ^ binder_to_string( binder) );
+           let myProp = mk_abs [binder] term_to_prove in
+             let l = mk_e_app (`nat_induction) [myProp] in
+               print( "my_lemma = " ^ term_to_string( l ) );
+               dump "before";
+               apply_lemma l;
+               dump "after lemma";
+               split();
+               dump "after split"
+```
+
+We used a new function from the `Tactics` namespace, called `split` which converts goals that have an `/\` into two separate goals.
+This would allow us to work on the two sides of the inductive hypothesis separately, if we needed to.  (We could call `nat_induction_tac`
+from other tactics.)
+
+Here's what it looks like on our sample theorem:
+
+```FStar
+let factorial_is_positive (n:nat) = 
+  assert (factorial n > 0) by nat_induction_tac()
+```
+
+```
+TAC>> goal type = ExampleInduction.factorial n > 0
+TAC>> binder = (n:Prims.nat)
+TAC>> my_lemma = ExampleInduction.nat_induction (fun n -> ExampleInduction.factorial n > 0)
+proof-state: State dump @ depth 1 (before):
+Location: ExampleInduction.fst(49,19-49,32)
+Goal 1/1:
+(n: Prims.nat) |- _ : Prims.squash (ExampleInduction.factorial binder > 0)
+
+proof-state: State dump @ depth 1 (after lemma):
+Location: ExampleInduction.fst(51,19-51,37)
+Goal 1/1:
+(n: Prims.nat) |- _ : Prims.squash ((fun n -> ExampleInduction.factorial n > 0) 0 /\
+    (forall (x: Prims.nat).
+        x > 0 /\ (fun n -> ExampleInduction.factorial n > 0) (x - 1) ==>
+        (fun n -> ExampleInduction.factorial n > 0) x))
+
+proof-state: State dump @ depth 0 (after split):
+Location: ExampleInduction.fst(53,19-53,37)
+Goal 1/2:
+(n: Prims.nat) |- _ : Prims.squash (ExampleInduction.factorial 0 > 0)
+
+Goal 2/2:
+(n: Prims.nat) |- _ : Prims.squash (forall (x: Prims.nat).
+      x > 0 /\ ExampleInduction.factorial (x - 1) > 0 ==> ExampleInduction.factorial x > 0)
+
+Verified module: ExampleInduction
+All verification conditions discharged successfully
+```
+
+Is there a simpler way?
+
 
 ## What's in the standard library?
 
