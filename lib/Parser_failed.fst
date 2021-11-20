@@ -1,4 +1,4 @@
-module Parser
+module Parser_failed
 
 (*
 A parser combinator library with very simple implementations,
@@ -7,6 +7,9 @@ but complex types. :(
 Parsers are functions that take a string and return a parse_result which
 contains either a user-specified value and the remaining portion of the string,
 or the parse_error type.
+
+NOTE: this approach really doesn't work very well because the type
+'parser T' cannot be used for `let rec parse_something : parser T'.
 *)
 
 open FStar.String
