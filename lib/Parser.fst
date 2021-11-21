@@ -5,40 +5,62 @@ open FStar.Printf
 open Suffixes
 
 // The type returned by a parser.
-// The parser may consume some of the input string, and returns the rest,
+// The parser must consume some of the input string, and returns the rest,
 // which must be a suffix of the input.
 type parse_result 'a (input:string) =
   | ParseError : expecting:string -> at:string -> parse_result 'a input
-  | Success : v:'a -> consumed:nat -> rest:string{is_suffix_at rest input consumed} -> parse_result 'a input
+  | Success : v:'a -> consumed:nat{consumed > 0} -> rest:string{is_suffix_at rest input consumed} -> parse_result 'a input
 
+// Unconstrainted parser which can take any string (useful at the top level for non-recursive types)
 let parser (a:Type) = (x:string) -> Tot (parse_result a x)
 
-let err_or_shorter #a (input:string) (r:parse_result a input) : bool =
-  match r with
-  | Success _ consumed _ -> consumed > 0
-  | ParseError _ _ -> true
-  
-let shorter_result (a:Type) (input:string) = (r:(parse_result a input){err_or_shorter input r})
-
-let proper_parser (a:Type) = (x:string) -> Tot (r:(parse_result a x){err_or_shorter x r})
+// Parsers which constraint the input side to be < or <= a context which was a previous input
+// from a higher level of the recursions.
+let parser_ctx (a:Type) (prev_input:string) = (x:string{strlen x < strlen prev_input}) -> Tot (parse_result a x)
+let parser_ctxe (a:Type) (prev_input:string) = (x:string{strlen x <= strlen prev_input}) -> Tot (parse_result a x)
 
 (*
   The most general combinator: apply a function to the results of two parsers.
-  Takes a function to combine two parse results from two types into a third type.  
+  Takes a function to combine two parse results from two types into a third type.
+
+  A previous input (of which the input is a prefix, although we only measure its length)
+  must be provided in order to take parser_ctx as either the first, second, or both arguments.
 *)
-let parse_comb #a #b #c (x:(parser a)) (f: a -> b -> Tot c) (y:(parser b)) (input:string) : Tot (parse_result c input) =
+
+// First argument is an unconstrained parser
+let parse_comb1 #a #b #c (prev_input:string)
+  (x:parser a) (f: a -> b -> Tot c) (y:parser_ctx b prev_input) 
+  (input:string{strlen input <= strlen prev_input}) : Tot (parse_result c input) =
   match (x input) with
   | ParseError e1 a1 -> ParseError e1 a1
-  | Success t1 c1 rest -> match (y rest) with
+  | Success t1 c1 rest ->
+      match (y rest) with
       | ParseError e2 a2 -> ParseError e2 a2
       | Success t2 c2 r2 -> 
         (suffix_transitivity r2 c2 rest c1 input;
         Success (f t1 t2) (c1+c2) r2)
 
-let parse_comb1 #a #b #c (x:(proper_parser a)) (f: a -> b -> Tot c) (y:(parser b)) (input:string) : Tot (shorter_result c input) =
+// Second argument is an unconstrained parser
+let parse_comb2 #a #b #c (prev_input:string)
+  (x:parser_ctx a prev_input) (f: a -> b -> Tot c) (y:parser b) 
+  (input:string{strlen input < strlen prev_input}) : Tot (parse_result c input) =
   match (x input) with
   | ParseError e1 a1 -> ParseError e1 a1
-  | Success t1 c1 rest -> match (y rest) with
+  | Success t1 c1 rest ->
+      match (y rest) with
+      | ParseError e2 a2 -> ParseError e2 a2
+      | Success t2 c2 r2 -> 
+        (suffix_transitivity r2 c2 rest c1 input;
+        Success (f t1 t2) (c1+c2) r2)
+
+// Neither argument is unconstrained
+let parse_comb #a #b #c (prev_input:string)
+  (x:parser_ctx a prev_input) (f: a -> b -> Tot c) (y:parser_ctx b prev_input) 
+  (input:string{strlen input < strlen prev_input}) : Tot (parse_result c input) =
+  match (x input) with
+  | ParseError e1 a1 -> ParseError e1 a1
+  | Success t1 c1 rest ->
+      match (y rest) with
       | ParseError e2 a2 -> ParseError e2 a2
       | Success t2 c2 r2 -> 
         (suffix_transitivity r2 c2 rest c1 input;
@@ -47,8 +69,11 @@ let parse_comb1 #a #b #c (x:(proper_parser a)) (f: a -> b -> Tot c) (y:(parser b
 (*
  handling literals
  *)
- 
-let literal (tok:string{strlen tok>0}) (input:string) : Tot (r:(parse_result (z:string{z=tok}) input){err_or_shorter input r}) (decreases (strlen input))= 
+
+// This version takes a string, but we will need to prove that the string
+// has nonzero length to use it (with another defintiion.)  
+// Literals don't get that for free.
+let literal (tok:string{0 < strlen tok}) (input:string) : Tot (parse_result (z:string{z=tok}) input) =   
   if strlen tok > strlen input then
      ParseError (sprintf "literal '%s'" tok) input
   else let m = sub input 0 (strlen tok) in
@@ -57,25 +82,44 @@ let literal (tok:string{strlen tok>0}) (input:string) : Tot (r:(parse_result (z:
      else
         ParseError (sprintf "literal '%s'" tok) input
 
-let bar_tok : (s:string{strlen s=3}) = assert_norm( strlen "bar" = 3); "bar"
-let foo_tok : (s:string{strlen s>0}) = assert_norm( strlen "foo" > 0); "foo"
-
-(* The more-specific type means it's not a parser string, it's
-   a more specific parser.*)
-let _ = literal foo_tok <: (parser (z:string{z="foo"}))
-[@@expect_failure]
-let _ = literal foo_tok <: (parser string)
+// This version takes a single character instead, so it can be used with a literal as-is.
+let literal_char (tok:char) (input:string) : Tot (parse_result (z:string{z=string_of_list [tok]}) input) =   
+  if 1 > strlen input then
+     ParseError (sprintf "literal '%c'" tok) input
+  else let m = FStar.List.Tot.hd (list_of_string input) in
+     if m = tok then
+        Success (string_of_list [tok]) 1 (suffix_at input 1)
+     else
+        ParseError (sprintf "literal '%c'" tok) input
 
 // Return the value inside of the given brackets
-let brackets #a (lbracket:string{strlen lbracket > 0}) (x:parser a) (rbracket:string{strlen rbracket >0}) (input:string) : Tot (shorter_result a input) (decreases (strlen input)) =
-  parse_comb1 
-    (literal lbracket)
-    (fun t1 t2 -> t2 )
-    (parse_comb
-      x
-      (fun t2 t3 -> t2 )
-      (literal rbracket))
-  input
+let brackets #a (orig_input:string) 
+  (lbracket:string{strlen lbracket > 0}) (x:parser_ctx a orig_input) (rbracket:string{strlen rbracket >0}) 
+  (input:string{strlen input <= strlen orig_input}) : Tot (parse_result a input) =
+  parse_comb1
+    orig_input  // context
+    (literal lbracket) // first parser
+    (fun t1 t2 -> t2 )   // transformation: take second result
+    (parse_comb        // second parser
+        orig_input            // same context?
+        x                     // parser in argument
+        (fun t2 t3 -> t2 )      // transformation: take result of x
+        (literal rbracket))
+    input
+
+let brackets_char #a (orig_input:string) 
+  (lbracket:char) (x:parser_ctx a orig_input) (rbracket:char) 
+  (input:string{strlen input <= strlen orig_input}) : Tot (parse_result a input) =
+  parse_comb1
+    orig_input  // context
+    (literal_char lbracket) // first parser
+    (fun t1 t2 -> t2 )   // transformation: take second result
+    (parse_comb        // second parser
+        orig_input            // same context?
+        x                     // parser in argument
+        (fun t2 t3 -> t2 )      // transformation: take result of x
+        (literal_char rbracket))
+    input
 
 (*
  Manipulating the result of a parser: applying a function on success,
@@ -109,12 +153,21 @@ let or_of_reasons #a #i (r1:string) (r2:string) (at:string)
     
 // Parse one of two options of the same type. Does not indicate which was chosen,
 // you'll have to have the value indicate that.
-let parse_either #a (x:(parser a)) (y:(parser a)) (input:string) : Tot (parse_result a input) =
+let parse_either #a (x:parser a) (y:parser a) (input:string) : Tot (parse_result a input) =
   match (x input) with
   | Success t1 c1 rest -> Success t1 c1 rest
   | ParseError e1 a1 -> match (y input) with
      | Success t2 c2 r2 -> Success t2 c2 r2 
      | ParseError e2 a2 -> or_of_reasons e1 e2 input
+
+let parse_either_ctx #a (ctx:string) (x:parser_ctxe a ctx) (y:parser_ctxe a ctx) (input:string{strlen input <= strlen ctx}) : Tot (parse_result a input) =
+  match (x input) with
+  | Success t1 c1 rest -> Success t1 c1 rest
+  | ParseError e1 a1 -> match (y input) with
+     | Success t2 c2 r2 -> Success t2 c2 r2 
+     | ParseError e2 a2 -> or_of_reasons e1 e2 input
+
+(*
 
 // Parse an entire list of the same type
 let rec parse_alternatives #a (x:list(parser a){Cons? x}) (input:string) : Tot (parse_result a input) =
@@ -159,6 +212,8 @@ let parse_nonempty_list #a (x:(parser (z:(list a){Cons? z}))) (y:(parser (list a
       | Success t2 c2 r2 -> 
         (suffix_transitivity r2 c2 rest c1 input;
          Success (FStar.List.Tot.append t1 t2) (c1+c2) r2)
+
+*)
 
 (* 
  Optional and repeated types 

@@ -5,14 +5,14 @@ open FStar.List.Tot
 open FStar.Tactics
      
 (* This is an adaptation of StringLemmas, oriented around proving thing about the following 
- * suffix relation, which we'll use for parsing.
+ * proper suffix relation, which we'll use for parsing.
  *)
   
-let is_suffix_at (a:string) (b:string) (n:nat) : bool = 
+let is_suffix_at (a:string) (b:string) (n:nat{n>0}) : bool = 
   if n + strlen a <> strlen b then false else
   (sub b n (strlen a)) = a
 
-let suffix_at (b:string) (n:nat{n <= strlen b}) : (x:string{is_suffix_at x b n}) =
+let suffix_at (b:string) (n:nat{0 < n /\ n <= strlen b}) : (x:string{is_suffix_at x b n}) =
   (sub b n (strlen b - n))
 
 (*
@@ -82,12 +82,12 @@ let substring_of_substring_is_substring (s:string)
 (*
  * Facts about is_suffix_at are now simple corrolaries
  *)
-let suffix_is_shorter (a:string) (b:string) (p:nat)
+ let suffix_is_shorter (a:string) (b:string) (p:nat{0<p})
  : Lemma (requires (is_suffix_at a b p))
          (ensures (strlen a) + p = (strlen b) )
    = ()
 
-let suffix_transitivity (a:string) (p1:nat) (b:string) (p2:nat) (c:string)
+let suffix_transitivity (a:string) (p1:nat{0<p1}) (b:string) (p2:nat{0<p2}) (c:string)
  : Lemma (requires (is_suffix_at a b p1) /\ (is_suffix_at b c p2))
          (ensures (is_suffix_at a c (p1+p2))) 
  = substring_of_substring_is_substring c p2 (strlen b) p1 (strlen a)
