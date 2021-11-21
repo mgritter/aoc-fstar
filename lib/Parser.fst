@@ -28,6 +28,7 @@ let parser_ctxe (a:Type) (prev_input:string) = (x:string{strlen x <= strlen prev
 *)
 
 // First argument is an unconstrained parser
+// So we can take <= because it can't recurse
 let parse_comb1 #a #b #c (prev_input:string)
   (x:parser a) (f: a -> b -> Tot c) (y:parser_ctx b prev_input) 
   (input:string{strlen input <= strlen prev_input}) : Tot (parse_result c input) =
@@ -40,7 +41,20 @@ let parse_comb1 #a #b #c (prev_input:string)
         (suffix_transitivity r2 c2 rest c1 input;
         Success (f t1 t2) (c1+c2) r2)
 
+let parse_comb_1e #a #b #c (prev_input:string)
+  (x:parser_ctxe a prev_input) (f: a -> b -> Tot c) (y:parser_ctx b prev_input) 
+  (input:string{strlen input <= strlen prev_input}) : Tot (parse_result c input) =
+  match (x input) with
+  | ParseError e1 a1 -> ParseError e1 a1
+  | Success t1 c1 rest ->
+      match (y rest) with
+      | ParseError e2 a2 -> ParseError e2 a2
+      | Success t2 c2 r2 -> 
+        (suffix_transitivity r2 c2 rest c1 input;
+        Success (f t1 t2) (c1+c2) r2)
+
 // Second argument is an unconstrained parser
+// But this doesn't allow us to loosen < to <=
 let parse_comb2 #a #b #c (prev_input:string)
   (x:parser_ctx a prev_input) (f: a -> b -> Tot c) (y:parser b) 
   (input:string{strlen input < strlen prev_input}) : Tot (parse_result c input) =
@@ -99,8 +113,8 @@ let brackets #a (orig_input:string)
   parse_comb1
     orig_input  // context
     (literal lbracket) // first parser
-    (fun t1 t2 -> t2 )   // transformation: take second result
-    (parse_comb        // second parser
+    (fun t1 t2 -> t2 )   // transformation: take second result        
+    (parse_comb2        // second parser
         orig_input            // same context?
         x                     // parser in argument
         (fun t2 t3 -> t2 )      // transformation: take result of x
@@ -132,6 +146,13 @@ let parse_apply #a #b (f:a->b) (x:(parser a)) (input:string): Tot (parse_result 
   | ParseError e1 a1 -> ParseError e1 a1
   | Success t1 c1 rest -> Success (f t1) c1 rest
 
+let parse_apply_ctxe #a #b (ctx:string) (f:a->b) (x:(parser_ctxe a ctx)) 
+  (input:string{strlen input <= strlen ctx}) 
+  : Tot (parse_result b input) =
+  match (x input) with
+  | ParseError e1 a1 -> ParseError e1 a1
+  | Success t1 c1 rest -> Success (f t1) c1 rest
+
 // Forget refined types in the parse result
 let parse_forget #a #p (x:(parser (z:a{p z}))) (input:string) : Tot (parse_result a input) =
     parse_apply id x input
@@ -147,6 +168,8 @@ let parse_rename #a (e:string) (x:(parser a)) (input:string) : Tot (parse_result
 *)
 
 // Combine two possible errors into a parse error
+// FIXME: this is not very good, it only shows the location of the top-level "either" clause 
+// when both parts fail.
 let or_of_reasons #a #i (r1:string) (r2:string) (at:string) 
   :  (r:(parse_result a i){ParseError? r}) =
   ParseError (concat " or " [r1; r2]) at
@@ -167,13 +190,11 @@ let parse_either_ctx #a (ctx:string) (x:parser_ctxe a ctx) (y:parser_ctxe a ctx)
      | Success t2 c2 r2 -> Success t2 c2 r2 
      | ParseError e2 a2 -> or_of_reasons e1 e2 input
 
-(*
-
 // Parse an entire list of the same type
-let rec parse_alternatives #a (x:list(parser a){Cons? x}) (input:string) : Tot (parse_result a input) =
+let rec parse_alternatives_ctx #a (ctx:string) (x:list(parser_ctxe a ctx){Cons? x}) (input:string{strlen input <= strlen ctx}) : Tot (parse_result a input) =
   match x with
   | hd :: [] -> (hd input)
-  | hd :: tl -> (parse_either hd (parse_alternatives tl) input) 
+  | hd :: tl -> (parse_either_ctx ctx hd (parse_alternatives_ctx ctx tl) input) 
 
 // Parse two alternatives with differing refined types
 let parse_either_relax #a #pa #pb 
@@ -213,27 +234,23 @@ let parse_nonempty_list #a (x:(parser (z:(list a){Cons? z}))) (y:(parser (list a
         (suffix_transitivity r2 c2 rest c1 input;
          Success (FStar.List.Tot.append t1 t2) (c1+c2) r2)
 
-*)
+(* Parse optional and repeated types *)
 
-(* 
- Optional and repeated types 
-
+(*
 // The Kleene star won't terminate if the parser doesn't consume input.  So, we'll
 // enforce totality by exiting as soon as it doesn't. 
-// (Previous approach: define proper and improper parsers, but then we'd have to have
-// make multiple version of the above combinators, probably?)
-let rec parse_star_aux #a (input:string) (x:parser a) (prev_a:list a) 
-: Tot ((list a)*(remaining:string{is_suffix remaining input})) 
-  (decreases (strlen input)) =
+let rec parse_star_aux #a (input:string) (x:parser a) (prev_a:list a) : Tot (parse_result (list a) input) (decreases (strlen input)) =
   match (x input) with
   | ParseError _ at -> 
-     suffix_is_reflexive input;
-     ((List.Tot.rev prev_a),input)
+     ParseError "inner parser failed" input
   | Success v rest -> 
-     if rest = input then ((List.Tot.rev prev_a),input)
+     if rest = input then 
+       Success 
+     
+     ((List.Tot.rev prev_a),input)
        else ( suffix_is_shorter rest input;
-              suffix_is_substring rest input;
-              proper_substring rest input;
+              // suffix_is_substring rest input;
+              // proper_substring rest input;
               let next_match = parse_star_aux rest x (v :: prev_a) in
                 ( suffix_transitivity (snd next_match) rest input;
                   assert( is_suffix (snd next_match) input );
@@ -247,27 +264,72 @@ let parse_star #a (x:(parser a)) (input:string): Tot (parse_result (list a) inpu
     let r = parse_star_aux input x [] in
        Success (fst r) (snd r)
 
-let listify #a (x:a) : y:(list a){Cons? y} = [x]
+*)
+
+let rec parse_plus_aux #a (orig_input:string) (x:parser a) 
+ (prev:(list a){Cons? prev}) (consumed:nat{consumed>0}) (rest:string{is_suffix_at rest orig_input consumed}) 
+: Tot (parse_result (z:(list a){Cons? z}) orig_input) (decreases (strlen rest)) =
+  match (x rest) with
+  | ParseError e1 a1 -> Success prev consumed rest
+  | Success new_elt c1 r1 ->
+   ( suffix_transitivity r1 c1 rest consumed orig_input;
+     parse_plus_aux 
+       orig_input
+       x
+       (List.Tot.append prev [new_elt]) // TODO: build, then reverse?
+       (consumed + c1)
+       r1 )
 
 // Parse one or more of the given parser, returned as a list
-let parse_plus #a (x:(parser a)) : Tot (parser (z:(list a){Cons? z})) =
-  parse_nonempty_list (parse_apply listify x) (parse_star x)
+let parse_plus #a (x:(parser a)) (input:string) : Tot (parse_result (z:(list a){Cons? z}) input) =
+  match (x input) with
+  | ParseError e1 a1 -> ParseError e1 a1
+  | Success first_elt c1 r1 ->
+    parse_plus_aux input x [first_elt] c1 r1
+     
 
 // Parse zero or one of the given parser, returned as an option
-let parse_option #a (x:(parser a)) (input:string): Tot (parse_result (option a) input) =
+// Must be followed by another parser that consumes input in order to succeed.
+// TODO: multiple options
+let parse_option #a #b (x:(parser a)) (y:(parser b)) (input:string) 
+: Tot ((parse_result (option a) input)*(parse_result b input)) =
   match (x input) with
-  | Success v rest -> Success (Some v) rest
-  | ParseError _ _ -> 
-    suffix_is_reflexive input;
-    Success None input
+  | Success v1 c1 r1 -> 
+     ( match (y r1) with
+       | Success v2 c2 r2 -> 
+           suffix_transitivity r2 c2 r1 c1 input; 
+           (Success (Some v1) c1 r1, Success v2 (c1+c2) r2)
+       | ParseError e2 a2 -> (ParseError e2 a2, ParseError e2 a2)
+     )
+  | ParseError e1 a2 ->
+     ( match (y input) with
+       | Success v2 c2 r2 -> (Success None c2 r2, Success v2 c2 r2)
+       | ParseError e2 a2 -> (ParseError e1 a2, ParseError e2 a2)
+     )
 
+let parse_option_ctx2 #a #b (ctx:string) (x:(parser a)) (y:(parser_ctx b ctx)) 
+  (input:string{strlen input < strlen ctx})
+: Tot ((parse_result (option a) input)*(parse_result b input)) =
+  match (x input) with
+  | Success v1 c1 r1 -> 
+     ( match (y r1) with
+       | Success v2 c2 r2 -> 
+           suffix_transitivity r2 c2 r1 c1 input; 
+           (Success (Some v1) c1 r1, Success v2 (c1+c2) r2)
+       | ParseError e2 a2 -> (ParseError e2 a2, ParseError e2 a2)
+     )
+  | ParseError e1 a2 ->
+     ( match (y input) with
+       | Success v2 c2 r2 -> (Success None c2 r2, Success v2 c2 r2)
+       | ParseError e2 a2 -> (ParseError e1 a2, ParseError e2 a2)
+     )
 
 type digit_string = (x:string{x = "0" \/ x = "1" \/ x = "2" \/ x = "3" \/ x = "4" \/ x = "5" \/ x = "6" \/ x = "7" \/ x = "8" \/ x = "9"})
 
 // This definition fails if one of the possibilities is missing!
 // ... or out of order.  Exciting!
 let digit : (parser digit_string) =
-    parse_rename "digit" (literal "0" <|> literal "1" <|> literal "2" <|> literal "3" <|> literal "4" <|> literal "5" <|> literal "6" <|> literal "7" <|> literal "8" <|> literal "9")
+    parse_rename "digit" (literal_char '0' <|> literal_char '1' <|> literal_char '2' <|> literal_char '3' <|> literal_char '4' <|> literal_char '5' <|> literal_char '6' <|> literal_char '7' <|> literal_char '8' <|> literal_char '9')
 
 let digit_string_to_int (d:digit_string) : int = 
   match d with
@@ -297,6 +359,7 @@ let unsigned_integer : parser int =
     parse_rename "unsigned integer" 
       (parse_apply dl_to_int (parse_plus digit))
 
+(*
 // Parse a signed decimal (only - is recognized, not +)
 let signed_integer : parser int = 
     parse_rename "integer"
@@ -306,19 +369,53 @@ let signed_integer : parser int =
          | Some _ -> op_Multiply (-1) i
          | None -> i)
         unsigned_integer)
-        
+  *)
+  
 // Consume any space and go on to the next parser
 // TODO: work on any whitespace characters
-let space #a (x:parser a) : parser a =
-    parse_comb
-      (parse_star (literal " "))
-      (fun ws result -> result)
-      x
+let space #a (x:parser a) (input:string) : (parse_result a input) =
+    snd (parse_option (parse_plus (literal_char ' ')) x input)
+
+let space_ctx #a (ctx:string) (x:parser_ctx a ctx) 
+    (input:string{strlen input < strlen ctx}) 
+   : (parse_result a input) =
+    snd (parse_option_ctx2 ctx (parse_plus (literal_char ' ')) x input)
 
 
+(*
+  Binary operator helper
 *)
 
+// This operator is allowed to recurse on the right only
+let binop_char_ctx #a #b #c  (ctx:string) 
+  (left:parser a) (binop:parser string) (right:parser_ctx b ctx) 
+  (comb:a -> b -> c)
+  (input:string{strlen input <= strlen ctx}) : Tot (parse_result c input) =  
+  parse_comb1
+    ctx  // context
+    left
+    comb   // transformation: combine with post-operator result
+    (parse_comb1
+        ctx            // same context?
+        binop
+        (fun t2 t3 -> t3 )       // transformation: take result of right
+        right)
+    input
 
+let binop_char_ctxe #a #b #c  (ctx:string) 
+  (left:parser_ctxe a ctx) (binop:parser string) (right:parser_ctx b ctx) 
+  (comb:a -> b -> c)
+  (input:string{strlen input <= strlen ctx}) : Tot (parse_result c input) =  
+  parse_comb_1e
+    ctx  // context
+    left
+    comb   // transformation: combine with post-operator result
+    (parse_comb1
+        ctx            // same context?
+        binop
+        (fun t2 t3 -> t3 )       // transformation: take result of right
+        right)
+    input
 
 
 
