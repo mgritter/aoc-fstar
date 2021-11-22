@@ -112,3 +112,6 @@ let digit : (parser digit_string) =
 
 Everything works OK (-ish) if the parsers are in the right order, but the
 proof fails if they are out of order.
+
+A problem you'll notice; the Github F* syntax formatter doesn't like char
+literals.  I *think* it's the grammar from this library? https://github.com/FStarLang/atom-fstar  That is the one mentioned here: https://github.com/github/linguist/tree/master/vendor
