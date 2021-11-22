@@ -1,5 +1,8 @@
 *~
 
+# query trace
+queries-*.smt2
+
 # binary files
 out
 out/*
