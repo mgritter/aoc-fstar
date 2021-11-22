@@ -1,4 +1,4 @@
-module Part1
+module Part2
 
 open Parser
 open FStar.String
@@ -84,25 +84,32 @@ let rec parse_ast (input:string) : Tot (parse_result ast input) (decreases (strl
 //  A + B * C + D 
 //  parses as
 //  (add A (mul B (add C D))) 
-//  but in evaluation order is should be
-//  (add (mul (add A B) C) D)
-let rec rewrite_left_assoc (tree:ast) : ast =
+//  but in evaluation order it should be
+//  (mult (add A B) (add C D))
+
+let rec rewrite_prec (tree:ast) : Tot ast =
     match tree with
     | Number n -> Number n 
-    | Paren p -> (rewrite_left_assoc p)
-    // A + B => add A and B, then use that result as the left arg of the next operation
-    | Add a t -> rewrite_aux (fun x -> (Add (rewrite_left_assoc a) x)) t
-    | Mul a t -> rewrite_aux (fun x -> (Mul (rewrite_left_assoc a) x)) t
-and rewrite_aux (defer:ast->ast) (tree:ast)  : ast =  
-    // defer is (Add a X) or (Mul a X) where the operation is the
-    // one that we previous parsed.
-    // Rewrite with that operation applied to the sole or left-hand argument
+    | Paren p -> (rewrite_prec p)
+    // Addition is higher precendence, so if we have
+    // A+B*C, then we need to add A to the first argument of the
+    // next term first
+    | Add a t -> rewrite_add (rewrite_prec a) t
+    | Mul a t -> rewrite_mul (rewrite_prec a) t
+and rewrite_add (left_op:ast) (tree:ast) : Tot ast (decreases tree) =
     match tree with
-    | Number n -> (defer (Number n))
-    | Paren p -> (defer (rewrite_left_assoc p))
-    // A + B + C ==> (A + B) + C
-    | Add a t -> rewrite_aux (fun x -> (Add (defer (rewrite_left_assoc a)) x)) t
-    | Mul a t -> rewrite_aux (fun x -> (Mul (defer (rewrite_left_assoc a)) x)) t
+    | Number n -> (Add left_op (Number n))
+    | Paren p -> (Add left_op (rewrite_prec p))
+    | Add a t -> rewrite_add (Add left_op (rewrite_prec a)) t
+    | Mul a t -> rewrite_mul (Add left_op (rewrite_prec a)) t
+and rewrite_mul (left_op:ast) (tree:ast) : Tot ast (decreases tree) = 
+    match tree with
+    | Number n -> (Mul left_op (Number n))
+    | Paren p -> (Mul left_op (rewrite_prec p))    
+    // Here's where the change comes in, we need to do the addition first, and
+    // defer the multiplication until later
+    | Add a t -> (Mul left_op (rewrite_add (rewrite_prec a) t))
+    | Mul a t -> rewrite_mul (Mul left_op (rewrite_prec a)) t
 
 let rec eval (tree:ast) : int =
     match tree with
@@ -117,12 +124,14 @@ let parse_and_rewrite (x:(parser ast)) : ML unit =
   | Success tree _ _ -> 
        print_string "parsed!\n"; 
        print_ast "" tree;
-       let rw = rewrite_left_assoc tree in
+       let rw = rewrite_prec tree in
           print_string "rewritten:\n";
           print_ast "" rw;
           print_string "evaluated:\n";
           print_string (sprintf "%d\n" (eval rw))
   | ParseError expected at -> print_string( "expecting " ^ expected ^ " at '" ^ at ^ "'\n")
+
+// let _ = parse_and_rewrite parse_ast
 
 let rec parse_and_sum_aux (fd:fd_read) (sum:int) : ML int =
   try 
@@ -131,7 +140,7 @@ let rec parse_and_sum_aux (fd:fd_read) (sum:int) : ML int =
          | ParseError p e ->
            print_string "parse error\n"; 0
          | Success tree _ _ ->           
-            let n = eval (rewrite_left_assoc tree) in
+            let n = eval (rewrite_prec tree) in
              print_string (sprintf "%s == %d\n" line n );
              parse_and_sum_aux fd (sum + n)
   with
@@ -143,6 +152,7 @@ let parse_and_sum (fn:string) : ML unit =
     let sum = parse_and_sum_aux fd 0 in
       print_string (sprintf "Total: %d\n" sum)
 
+//let _ = parse_and_sum "example.txt"
 let _ = parse_and_sum "input.txt"
 
 
