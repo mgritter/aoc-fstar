@@ -8,7 +8,7 @@ open FStar.Tactics
  * proper suffix relation, which we'll use for parsing.
  *)
   
-let is_suffix_at (a:string) (b:string) (n:nat{n>0}) : bool = 
+let is_suffix_at (a:string) (b:string) (n:nat) : bool = 
   if n + strlen a <> strlen b then false else
   (sub b n (strlen a)) = a
 
@@ -87,7 +87,7 @@ let substring_of_substring_is_substring (s:string)
          (ensures (strlen a) + p = (strlen b) )
    = ()
 
-let suffix_transitivity (a:string) (p1:nat{0<p1}) (b:string) (p2:nat{0<p2}) (c:string)
+let suffix_transitivity (a:string) (p1:nat) (b:string) (p2:nat) (c:string)
  : Lemma (requires (is_suffix_at a b p1) /\ (is_suffix_at b c p2))
          (ensures (is_suffix_at a c (p1+p2))) 
  = substring_of_substring_is_substring c p2 (strlen b) p1 (strlen a)
