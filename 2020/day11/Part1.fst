@@ -117,11 +117,17 @@ let nat_range_no_really (w:nat{0 < w}) :  (l:list (z:nat{0 <= z && z < w}){List.
 let transition_matrix #w #h (m:matrix cell_contents w h) : Tot (matrix cell_contents w h) =
   let map_row (y:nat{y<h}): (vector cell_contents w) = 
     let row : (l:list(j:nat{0 <= j && j < w}){List.Tot.length l = w}) = (nat_range_no_really w) in
+      // doesn't work because it's looking for a list x{A /\ A} instead of a list x{A}
+      // map_vec (fun x -> transition (value_at m y x) (neighborhood m y x)) row 
       map_vec (fun (x:nat{0 <= x && x < w}) -> transition (value_at m y x) (neighborhood m y x)) row
-    // map_vec (fun x -> Floor) (nat_range 0 w)
   in 
     nat_range_length 0 h;
     map_vec map_row (nat_range 0 h)
+
+//(Error 19) Subtyping check failed; expected
+//type l: list (j: nat{0 <= j && j < w /\ 0 <= j && j < w}) {List.Tot.Base.length l = w}; 
+//got 
+//type l: list (j: nat{0 <= j && j < w}) {List.Tot.Base.length l = w}; 
 
 let parse_char (c:char) (l:list cell_contents) : (option (list cell_contents)) =
   match c with
