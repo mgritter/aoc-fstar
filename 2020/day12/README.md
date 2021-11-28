@@ -24,6 +24,9 @@ or not for the purpose of the postcondition. I expect it does not.
 
 Verifying the real input function takes a long time, had to bump the SMT
 rlimit, even though there is (I think?) not any complicated type here.
+The SMT queries that timed out all said "reason-unknown=unknwon because unknown".
+The error message could be a lot better here and say "timed out" if that's
+the problem
 
 ### Questions
 
