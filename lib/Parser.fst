@@ -359,18 +359,25 @@ let unsigned_integer : parser int =
     parse_rename "unsigned integer" 
       (parse_apply dl_to_int (parse_plus digit))
 
-(*
+let parse_apply_opt #a #b #c (x:parser a) (y:parser b) (f:(option a)->b->c) (input:string) : (parse_result c input) =
+   let pr = parse_option x y input in
+       match pr with 
+       | (Success v1 _ _, Success v2 c2 r2) -> Success (f v1 v2) c2 r2
+       | (_, ParseError a2 e2) -> ParseError a2 e2
+   
+
 // Parse a signed decimal (only - is recognized, not +)
 let signed_integer : parser int = 
     parse_rename "integer"
-      (parse_comb 
-        (parse_option (literal "-"))
-        (fun o i -> match o with
-         | Some _ -> op_Multiply (-1) i
-         | None -> i)
-        unsigned_integer)
-  *)
-  
+      (parse_apply_opt           
+           (parse_forget (literal_char '-'))
+           unsigned_integer
+           (fun (sign:option string) (v:int) -> 
+             match sign with 
+             | Some _ -> op_Multiply (-1) v
+             | None -> v
+             ))
+
 // Consume any space and go on to the next parser
 // TODO: work on any whitespace characters
 let space #a (x:parser a) (input:string) : (parse_result a input) =
