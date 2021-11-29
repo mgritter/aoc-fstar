@@ -34,8 +34,9 @@ let boat_post  (a:Type) = st_post_h boat_state a
 let boat_wp (a:Type)   = st_wp_h boat_state a
 
 // This says that a DIV computation leaves the boat state unchanged?
-// I think this is required to let us call Tot functions.  But when missing
-// it's the first Boat effect that complains.
+// I think this is required to let us call Pure or Tot functions.  But when missing
+// it's the first Boat effect that complains.  Maybe because Boat defines 
+// some Pure functions.
 unfold let lift_div_boat (a:Type) (wp:pure_wp a) (p:boat_post a) (t:boat_state) = wp (fun a -> p a t)
 sub_effect DIV ~> BOAT = lift_div_boat
 
