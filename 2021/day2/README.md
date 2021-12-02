@@ -24,7 +24,8 @@ I tried to write a helper function that took two references and
 created a set of their addresses, but that complained about mismatched
 effects (GTot and St.)  I couldn't figure out a workaround, so
 instead the code has lots of extra `addr_of`s.
-
+  * ETA: it looks like `^*^` is an overloaded operator for this?
+  
 This stupid function will not typecheck.  It's the < precondition that
 fails.
   * The version in part 1 checks.
@@ -73,9 +74,19 @@ modifies (Set.singleton (addr_of horizontal)) h1 h1'0 /\ equal_dom h1 h1'0 /\
 sel h1'0 horizontal == sel h1 horizontal + d
 ```
 
+*ETA*: Fixed.  The missing piece is that there is no information that the
+two varibles are not aliased!  Adding that as an extra assumption
+succeeds.  The problem now is getting an environment set up where that is
+true.  Because of the way I approached this function I "cheated" and the
+references are global symbols, but that means the freshness proof is not
+attached.  So I used an `assume`.
+
 Compiling the full program is very, very slow and uses about 4GiB of memory.
+Here's the profile:
+
+`(Part2.fst(65,2-1069,9))	Query-stats (Part2.navigate, 1)	succeeded in 28445 milliseconds with fuel 2 and ifuel 1 and rlimit 163396800 statistics={mk-bool-var=259845 del-clause=233272 lazy-quant-instantiations=12377 interface-eqs=22 num-checks=6 conflicts=2119 binary-propagations=88860 arith-fixed-eqs=948 arith-bound-prop=5 propagations=365141 arith-assert-upper=1713 arith-assert-lower=1251 decisions=95919 datatype-occurs-check=22 rlimit-count=36479589 arith-offset-eqs=40 restarts=1 quant-instantiations=95468 mk-clause=251616 minimized-lits=1 memory=289.64 arith-pivots=1948 max-generation=16 arith-add-rows=5128 arith-conflicts=2 time=26.79 num-allocs=149681895193.00 datatype-accessor-ax=13 max-memory=331.81 final-checks=44 arith-eq-adapter=961 added-eqs=92863}
+`
 
 ### Questions
 
-How can we get this stupid trivial inequality to type-check?
 

@@ -6,31 +6,31 @@ open FStar.All
 open FStar.Heap
 open FStar.ST
 open FStar.Tactics
-  
-val horizontal : ref int
-val depth : ref int
-val aim : ref int
 
+val horizontal : ref int
 let horizontal = ST.alloc 0
+
+val depth : ref int
 let depth = ST.alloc 0
+
+val aim : ref int
 let aim = ST.alloc 0
+
+// Because we're passing the reference in as "global variables" to forward/down/up,
+// it doesn't seem possible to allocate them in a function where the context is
+// maintained that they are unique--- and my attempts to add those types above failed.
+// So we'll just add it as an assumption.
 
 let two_element_set (#a:eqtype) (x1:a) (x2:a) : Set.set a =
  Set.union (Set.singleton x1) (Set.singleton x2)
 
 let forward (d:int{d>0}) : ST unit
-  (requires (fun h0 -> contains h0 horizontal /\ contains h0 aim))
-  (ensures (fun h0 _ h1 ->
-                        // Can't prove this -- why?
-                        // (sel h0 horizontal) < (sel h1 horizontal) /\
+  (requires (fun h0 -> contains h0 horizontal /\ contains h0 aim /\ addr_of depth <> addr_of horizontal ))
+  (ensures (fun h0 _ h1 -> (sel h0 horizontal) < (sel h1 horizontal) /\
                         (modifies (two_element_set (addr_of horizontal) 
                                                    (addr_of depth)) h0 h1))) =
-    let old_horiz = !horizontal in (                                                   
       depth := !depth + op_Multiply !aim d;
-      assert( !horizontal = old_horiz );
-      horizontal := !horizontal + d;
-      assert( !horizontal > old_horiz )
-    )
+      horizontal := !horizontal + d
         
 let down (d:int{d>0}) : ST unit
   (requires (fun h0 -> contains h0 aim))
@@ -47,20 +47,22 @@ let up (d:int{d>0}) : ST unit
 let print_state () : ML unit =
   print_string (sprintf "H=%d D=%d A=%d\n" !horizontal !depth !aim )
 
-let example () : ML unit =
- horizontal := 0;
- depth := 0;
- aim := 0;
- 
- forward 5;
- down 5;
- forward 8;
- up 3;
- down 8;
- forward 2
+let example ()  =
+  assume(addr_of horizontal <> addr_of depth);
+  horizontal := 0;
+  depth := 0;
+  aim := 0;
+
+  forward 5;
+  down 5;
+  forward 8;
+  up 3;
+  down 8;
+  forward 2
 
 #set-options "--z3rlimit 300"
 let navigate () : St unit =
+  assume(addr_of horizontal <> addr_of depth);
  horizontal := 0;
  depth := 0;
  aim := 0;
