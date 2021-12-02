@@ -24,6 +24,11 @@ I eventually figured out that there isn't a full set of lemmas for `snoc` in the
 the length of the rolling window list is correct, but it doesn't have a SMTPat to include it automatically.  I had to write a new one
 using `lemma_append_last` to prove the interaction of last and snoc.
 
+### Follow-up
+
+The non-tail recursive version of `rolling_window` was much easier to prove things about.  I probably should have written that first,
+proved its correctness, then thought about implementing a tail-recursive version and proving its equivalence.
+
 ### Questions
 
 How can we prove the lemma `rolling_window_ok`?  Does it require double recursion on the list length and on the index?  At least I can write
