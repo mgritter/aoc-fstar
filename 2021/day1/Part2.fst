@@ -2007,42 +2007,123 @@ let input : list int = [ 100;
 10041;
 10044 ]
 
+// Computation of the rolling window
 let rec rolling_window_aux (p_2:int) (p_1:int) (l: (list int)) (rolling: (list int)) 
  : Tot (l: list int) (decreases l) =
   match l with 
   | [] -> rolling
   | hd :: tl -> rolling_window_aux p_1 hd tl (snoc (rolling, (p_2 + p_1 + hd)))
 
-let rec rolling_length (l: (list int)) (rolling: (list int)) (x:int) (y:int)
+// Proof that the length of the output is equal to the length of the input
+// (not counting the first two elements passed as ints.)
+let rec rolling_length (x:int) (y:int) (l: (list int)) (rolling: (list int))
  : Lemma (ensures length (rolling_window_aux x y l rolling) = 
                          (length rolling)  + (length l) ) 
+         (decreases (length l))
  = match l with
   | [] -> ()
   | hd::tl -> 
       lemma_snoc_length (rolling,(x+y+hd));
-      rolling_length tl (snoc (rolling, (x+y+hd))) y hd
+      rolling_length y hd tl (snoc (rolling, (x+y+hd)))
   
 let rolling_window_3 (l: (list int){length l >= 3}) : Tot (l: (list int){Cons? l}) =
-  rolling_length (tail (tail l)) [] (index l 0) (index l 1);
+  rolling_length (index l 0) (index l 1 ) (tail (tail l)) [];
   rolling_window_aux (index l 0) (index l 1) (tail (tail l)) []
 
-let rec last_of_snoc_is_elt #a (l: (list a)) (e: a) 
+// Single-element case showing rolling window is correct
+// But this looks like a detour.
+let last_of_snoc_is_elt #a (l: (list a)) (e: a) 
  : Lemma (ensures (last (snoc (l,e))) == e)
   = match l with
     | [] -> ()
     | hd :: tl -> lemma_append_last l [e]       
- 
-let rec rolling_sum_0 (x_2:int) (x_1:int) (l: (list int){length l = 1}) (rolling: (list int))
+
+let rolling_sum_last (x_2:int) (x_1:int) (l: (list int){length l = 1}) (rolling: (list int))
  : Lemma (ensures (last (rolling_window_aux x_2 x_1 l rolling) = (x_2 + x_1 + hd l)))
  = last_of_snoc_is_elt rolling (x_2 + x_1 + (hd l) )
 
+// Show that the head of the return value is determined by r, or if r is empty,
+// by the rolling sum.
+//
+// The 0th element of the return value is the 0th element of r
+let rec first_is_unchanged (x_2:int) (x_1:int) (l: (list int)) (r: (list int){length r >= 1}) 
+ : Lemma (ensures length (rolling_window_aux x_2 x_1 l r) > 0 /\ 
+                  index (rolling_window_aux x_2 x_1 l r) 0 = index r 0)
+         (decreases l)
+   = rolling_length x_2 x_1 l r;
+     match l with 
+     | [] -> ()
+     | hd :: tl -> 
+        first_is_unchanged x_1 hd tl (snoc (r,(x_2 + x_1 + hd)))
+
+// If r is empty, then the 0th element is determined by the first element of the list.
+let first_window (x_2:int) (x_1:int) (l: (list int){length l >= 1}) 
+ : Lemma (ensures length (rolling_window_aux x_2 x_1 l []) > 0 /\ 
+                  index (rolling_window_aux x_2 x_1 l []) 0 = x_2 + x_1 + hd l)
+         (decreases l)
+   = rolling_length x_2 x_1 l [];
+     match l with 
+     | h :: [] -> ()  // this case is no problem for it
+     | h :: tl -> first_is_unchanged x_1 h tl [(x_2 + x_1 + hd l)]
+
+// General case
+let index_at_end_of_snoc #a (l:list a) (e: a)  
+ : Lemma (ensures (length (snoc (l,e)) == length l + 1) /\
+                   (index (snoc (l,e)) (length l)) == e)
+  = lemma_snoc_length (l, e);
+    lemma_unsnoc_is_last (snoc (l,e))
+
+
+let rec rolling_sum_0 (x_2:int) (x_1:int) (l: (list int){length l >= 1})
+ : Lemma (ensures (length (rolling_window_aux x_2 x_1 l [] ) > 0) /\
+                  (index (rolling_window_aux x_2 x_1 l []) 0) = (x_2 + x_1 + hd l))
+    = admit()
+ 
 let rolling_window_ok (l: (list int){length l >= 3}) (n:nat{n < length (rolling_window_3 l)})  :
   Lemma (requires n < length l - 2)
         (ensures
                 (index (rolling_window_3 l) n) = 
                (index l n) + (index l (n+1) ) + (index l (n+2)))
  = admit()
- 
+
+(*  
+   The non-tail-recursive version may be easier to prove things about 
+   *)
+let rec rolling_window_rec (p_2:int) (p_1:int) (l: (list int))
+ : Tot (l: list int) (decreases l) =
+  match l with 
+  | [] -> []
+  | hd :: tl -> (p_2 + p_1 + hd) :: ( rolling_window_rec p_1 hd tl)
+
+let rec rolling_length_rec (x:int) (y:int) (l: (list int)) 
+ : Lemma (ensures length (rolling_window_rec x y l) = length l)
+         (decreases (length l))
+ = match l with
+  | [] -> ()
+  | hd::tl -> rolling_length_rec y hd tl
+
+let rolling_window_3_alt (l: (list int){length l >= 3}) : Tot (l: (list int){Cons? l}) =
+  rolling_length_rec (index l 0) (index l 1) (tail (tail l));
+  rolling_window_rec (index l 0) (index l 1) (tail (tail l))
+
+let rec rolling_window_alt_ok 
+ (l: (list int){length l >= 3}) 
+ (n:nat{n < length (rolling_window_3_alt l)})  :
+  Lemma (requires n < length l - 2)
+        (ensures
+               (index (rolling_window_3_alt l) n) = 
+               (index l n) + (index l (n+1) ) + (index l (n+2)))
+ = if n = 0 then
+   ()
+   else match l with
+   | hd :: tl -> rolling_window_alt_ok tl (n-1)
+
+// Now we would have to show that these two implementations give the same result.  :(
+
+(* 
+  Part 1 solution, reused
+  *)
+
 let rec increase_count_aux (increases:nat) (last:int) (l:list int) : Tot nat (decreases l) =
   match l with
   | [] -> increases
