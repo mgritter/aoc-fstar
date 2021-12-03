@@ -63,50 +63,13 @@ let minority (input:(list bool){((List.Tot.length input) % 2) = 1}) :
 let ith_element (i:nat{i<12}) (d:diagnostic) : bool =
   List.Tot.index (bv2list d) i
 
+let zero_to_eleven () : (l:(list (x:nat{x <12})){List.Tot.length l = 12}) =
+  let x = [0;1;2;3;4;5;6;7;8;9;10;11] in
+    assert_norm( List.Tot.length x = 12);
+    x
+
+// Without #12 we get:
 // Failed to resolve implicit argument ?328 of type pos introduced for flex-flex quasi:	lhs=Instantiating implicit argument in application	rhs=Instantiating implicit argument in application
-
-let rec nat_range_helper (start:nat) (nd:nat{start<nd}) 
-    (curr:nat{start <= curr && curr < nd}) 
-    (l:list (z:nat{start <= z && z < nd}))
-: Tot (list (z:nat{start <= z && z < nd})) (decreases (curr-start)) =
-  if curr = start then curr :: l
-  else nat_range_helper start nd (curr-1) (curr :: l)
-
-let nat_range_lemma_0 (start:nat) (nd:nat{start<nd}) (l:list (z:nat{start <= z && z < nd}))
-  : Lemma( nat_range_helper start nd start l = start :: l ) =
-  ()
-
-let nat_range_lemma_1 (start:nat) (nd:nat{start<nd}) 
-  (c:nat{start < c && c < nd}) (l:list (z:nat{start <= z && z < nd})) 
-  : Lemma( nat_range_helper start nd c l = nat_range_helper start nd (c-1) ( c :: l ) ) =
-  ()
-
-let rec nat_range_helper_len (start:nat) (nd:nat{start<nd}) 
-   (curr:nat{start <= curr && curr < nd}) 
-   (l:list (z:nat{start <= z && z < nd}))
-  : Lemma (ensures (List.Tot.length (nat_range_helper start nd curr l) = (List.Tot.length l) + (1 + (curr - start))))
-          (decreases (curr - start))
-   = if curr = start then 
-       nat_range_lemma_0 start nd l
-     else (
-       nat_range_helper_len start nd (curr-1) (curr::l);
-       nat_range_lemma_1 start nd curr l
-     )
-     
-let nat_range (start:nat) (nd:nat) : Tot (list (z:nat{start <= z && z < nd})) =
-  if start >= nd then []
-  else nat_range_helper start nd (nd-1) []
-  
-let nat_range_length (start:nat) (nd:nat) 
-  : Lemma (requires start < nd)
-          (ensures (List.Tot.length (nat_range start nd) = (nd - start)))
-          [SMTPat (nat_range start nd)]
-  =  nat_range_helper_len start nd (nd-1) []
-
-let zero_to_eleven () : (l:(list (x:nat{0 <= x && x <12})){List.Tot.length l = 12}) =
-  nat_range_length 0 12;
-  nat_range 0 12
-
 let gamma (l:(list diagnostic){(List.Tot.length l) % 2 = 1}) : int =
   bv2int #12 (list2bv (List.Tot.map 
             (fun i -> (majority (map (ith_element i) l)))
