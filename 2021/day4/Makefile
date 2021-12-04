@@ -5,7 +5,7 @@ part1: Part1
 
 part2: Part2
 
-programs = Part1 Part2
+programs = Part1 Part2 Part3
 
 $(programs): %: %.fst out
 	$(FSTAR) $(FSTAR_DEFAULT_ARGS) --odir out --codegen OCaml --extract '$@' $< --record_hints

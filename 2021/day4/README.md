@@ -32,3 +32,59 @@ some of these on later days.
 
 I could not figure out whether the `UInt32` parsing function would accept an initial `' '`
 in the number, and my attempts to run Ocaml interactively to test it failed miserably.
+
+### follow-up "Part 3"
+
+I decided it would be easier to prove the properties of the solution if we computed the first-win times
+for all boards, and then took the minimum and the maximum.  Here's the key predicate, which is
+itself recusively defined:
+
+```
+// Predicate: is x the first index within "nums" such that
+// marking the first x numbers makes the card a win?
+let rec is_first_win (nums:list int) (c:card) (x:nat) : Tot bool =
+  ( x = 0 && is_winner c ) ||
+  ( x > 0 && x <= length nums &&
+    length nums > 0 &&
+    op_Negation (is_winner c)  &&
+    is_first_win (tl nums) (mark_single_card (hd nums) c) (x-1) )
+```
+
+We can show that this definition ensures that no previous round is a win:
+
+```
+let rec first_really_is_first (nums:list int) (c:card) (x:nat) (y:nat)
+ : Lemma (requires (is_first_win nums c x) /\ (y < x))
+         (ensures (is_first_win nums c y = false )) =
+	 // proof omitted
+```
+
+And that the search procedure that is actually executed will find it.
+
+```
+let rec time_to_win_returns_first (nums:list int) (c:card) (time:nat) (final_card:card):
+  Lemma (requires (time_to_win nums c == Some (time,final_card)))
+        (ensures (is_first_win nums c time)) =
+	// proof omitted
+```
+
+This latter proof required me to bump up the SMT solver timeout; sometimes it worked
+without it, but not reliably.
+
+I was pleased that the SMT solver could handle the details of this proof by itself:
+
+```
+let rec first_by_time (nums:list int) (l:(list (win_rec nums)){Cons? l}) :
+  (m:(win_rec nums){forall y . (mem y l) ==> Winner?.time m <= Winner?.time y}) =
+  match l with 
+  | hd :: [] -> hd
+  | hd :: tl -> let prev_min = first_by_time nums tl in
+    if Winner?.time hd <= Winner?.time prev_min then
+       hd
+    else
+       prev_min
+```
+
+I was less pleased that I had to convert the "time" back into an "index", in a way not
+proven to be correct.  So there was still room for a bug to be introduced in the score
+calculation, but writing a type for that seemed still another bump in complexity.
