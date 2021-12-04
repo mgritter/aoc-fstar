@@ -15,8 +15,9 @@ instead of one step at a time.
 ## F* problems
 
 Is there a boolean not operator?  Or do we have to use op_Negation?  I had a hard time
-finding op_Negation, is there a reference anywhere?  (I noticed that || and && are not
-on the symbols list, adding them to the wiki.)
+finding `op_Negation` (and then I didn't recognize it when I found it, I kept looking for
+a symbol.)  Is there a reference anywhere?  I noticed that || and && are not
+on the symbols list, adding them to the wiki.
 
 I keep running into the problem where I want types in F* to be covaraint, but they are not.
 `list nat`  is not a `list int`.  An `option` on a refined type is not an `option` on the base type.
@@ -29,3 +30,5 @@ are much harder to express.
 I spent a long time on parsing; maybe I need to write some better primitives.  Maybe I can copy
 some of these on later days.
 
+I could not figure out whether the `UInt32` parsing function would accept an initial `' '`
+in the number, and my attempts to run Ocaml interactively to test it failed miserably.
