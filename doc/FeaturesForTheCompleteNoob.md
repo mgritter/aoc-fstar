@@ -12,6 +12,27 @@ to capture a list.
 > `&` is overloaded for both dependent and non-dependent tuple types.
 -- https://github.com/FStarLang/FStar/wiki/F%2A-symbols-reference
 
+The correct syntax for creating an instance of a dependent tuple is:
+
+```FStar
+(| x, y |)
+```
+
+A "dependent tuple" is one where the second element has a type that depends on the first, like Pie's cons-pairs.  For example, you could have
+a set and then an element from that set, like this:
+
+```FStar
+type mypair = x:(set int) & (y:int(mem y x))
+```
+
+An alternative (which might be useful for triples, etc.) is to define a type with a single constructor; then
+there can be dependencies on arguments to the type or on previous arguments to the constructor:
+
+```FStar
+type mydeptriple =
+| DepTriple : (a:int) -> (b:int{a < b}) -> (c:int{b < c}) -> mydeptriple
+```
+
 ## Parameters that start with $
 
 > The stratified specific = qualifier is not available anymore on binders i.e. the deprecated fun (=x:t) -> ... must be changed to fun ($x:t) -> ...
