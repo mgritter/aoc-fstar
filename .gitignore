@@ -1,6 +1,6 @@
 *~
 
-# query trace
+# query traces
 queries-*.smt2
 
 # binary files
@@ -9,3 +9,6 @@ out/*
 *.hints
 part1
 part2
+
+# pre-checked modules
+*.checked
