@@ -132,7 +132,7 @@ let has_column_winner (c:card) : (b:bool{b ==> (exists r . is_column_winner r c)
 let is_winner (c:card) : (b:bool{b <==> has_column_winner c \/ has_row_winner c}) =
   has_column_winner c || has_row_winner c
 
-// Predicate: is x the first index within "nums" such that
+// Predicate: is x the first value such that
 // marking the first x numbers makes the card a win?
 let rec is_first_win (nums:list int) (c:card) (x:nat) : Tot bool =
   ( x = 0 && is_winner c ) ||
