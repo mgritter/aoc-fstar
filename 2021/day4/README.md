@@ -21,7 +21,7 @@ on the symbols list, adding them to the wiki.
 
 I keep running into the problem where I want types in F* to be covaraint, but they are not.
 `list nat`  is not a `list int`.  An `option` on a refined type is not an `option` on the base type.
-There are some simple examples in Covariance.fst in this directory.
+There are some simple examples in [Covariance.fst](Covariance.fst) in this directory.
 
 Fortunately I got my "how to I make a list of length 5" problems out of my system, but I ended
 up copy-and-pasting anyway because things that are one-liners in Python with list comprehensions
