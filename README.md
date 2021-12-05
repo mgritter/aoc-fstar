@@ -13,8 +13,9 @@ F* is an OCaml-like language for "proof-oriented programming".  It supports:
   * reasoning about effectful programs
   
 Wiki: https://github.com/FStarLang/FStar/wiki
-  * Symbol reference: https://github.com/FStarLang/FStar/wiki/F%2A-symbols-reference
-
+  * [Symbol reference](https://github.com/FStarLang/FStar/wiki/F%2A-symbols-reference)
+  * [Modules and namespaces])https://github.com/FStarLang/FStar/wiki/Modules,-namespaces-and-name-resolution)
+  
 Old tutorial: https://fstar-lang.org/tutorial/tutorial.html
 
 Incomplete new tutorial: https://www.fstar-lang.org/tutorial/
