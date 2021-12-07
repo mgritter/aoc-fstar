@@ -14,8 +14,10 @@ open FStar.List.Tot
 let int32_to_int (n:Int32.t) : int =
   Int32.v n
 
+let comma = [',']
+
 let parse_comma_separated_numbers (s:string) : Tot (list int) =
-  FStar.List.Tot.map (fun x -> (int32_to_int (Int32.of_string x))) (FStar.String.split [','] s)  
+  FStar.List.Tot.map (fun x -> (int32_to_int (Int32.of_string x))) (FStar.String.split comma s)  
 
 let rec summed_distance_to (l:list int) (meeting:int) : Tot nat =
   match l with
