@@ -56,3 +56,21 @@ Used in `FStar.map` but not defined in  https://github.com/FStarLang/FStar/wiki/
 ## Type ascription
 
 The `<:` operator requires that its left argument be of the type on the right.
+
+## `function` keyword
+
+This seems to be a holdover from OCaml:
+
+https://stackoverflow.com/questions/33266050/the-difference-of-the-function-keyword-and-match-with-in-ocaml/33267362
+
+I think
+
+```FStar
+function | X -> Y | A -> B
+```
+
+is the same as
+
+```FStar
+fun x -> match x with | X -> Y | A -> B
+```
