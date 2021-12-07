@@ -6,7 +6,8 @@ open FStar.All
 open FStar.Int32
 open FStar.List.Tot
 open FStar.Tactics
-     
+module LP = FStar.List.Pure
+  
 let int32_to_int (n:Int32.t) : int =
   Int32.v n
 
@@ -81,7 +82,8 @@ let rec lemma_splitAt_fst_length (#a:Type) (n:nat) (l:list a) :
   | 0, _ -> ()
   | _, [] -> ()
   | _, _ :: l' -> lemma_splitAt_fst_length (n-1) l'
-  
+
+// This was the version I originally wrote
 let split3_recombine (l:list nat) (i:nat{i<length l}) (replacement:nat) 
                      (before:list nat) (orig:nat) (after:list nat)
  : Lemma (requires split3 l i = (before, orig, after) )
@@ -95,7 +97,16 @@ let split3_recombine (l:list nat) (i:nat{i<length l}) (replacement:nat)
        append_length [replacement] after;       
        append_length before (append [replacement] after);
        ()
- 
+
+// This is the one that uses the correct lemma
+let split3_recombine_2 (l:list nat) (i:nat{i<length l}) (replacement:nat) 
+                     (before:list nat) (orig:nat) (after:list nat)
+ : Lemma (requires split3 l i = (before, orig, after) )
+         (ensures length (before  @ [replacement] @ after) = length l)
+     = LP.lemma_split3_length l i;
+       append_length [replacement] after;
+       append_length before (append [replacement] after)
+       
 let rec list_to_pop_aux (l:list int) (p:fish_population) : fish_population =
   match l with 
   | [] -> p
