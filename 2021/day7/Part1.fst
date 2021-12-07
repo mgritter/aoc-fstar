@@ -14,7 +14,9 @@ open FStar.List.Tot
 let int32_to_int (n:Int32.t) : int =
   Int32.v n
 
-let comma = [',']
+// This is a workaround for the GitHub pretty-printer, which doesn't
+// like single-quoted character values.
+let comma = [FStar.Char.char_of_int 0x2c]
 
 let parse_comma_separated_numbers (s:string) : Tot (list int) =
   FStar.List.Tot.map (fun x -> (int32_to_int (Int32.of_string x))) (FStar.String.split comma s)  
