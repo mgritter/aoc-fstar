@@ -1,12 +1,13 @@
 module Part1
 
+open FStar.Tactics
 open FStar.IO
 open FStar.Printf
 open FStar.All
 open FStar.String
 open FStar.Int32
 open FStar.List.Tot
-
+  
 // Hypothesis: the median value is the best meeting point
 //  1000, 1, 1
 //  999
@@ -52,7 +53,7 @@ let rec trichotomy (l:list int) (z:int)
  match l with 
  | [] -> ()
  | hd :: tl -> trichotomy tl z
- 
+
 let rec summed_distance_to_neighbor_plus (l:list int) (meeting:int) :
   Lemma (ensures (summed_distance_to l (meeting+1)) = 
                  (summed_distance_to l meeting) +
@@ -99,9 +100,73 @@ let median_lemma (l:(list int){length l > 0})
           num_lt l (median l) + 1 = num_gt l (median l) ) =
    admit()
 
-let rec median_minimizes_distance (l:list int{length l > 0}) (z:int)
- : Lemma (summed_distance_to l z >= summed_distance_to l (median l)) =
-   admit()
+// If the partition by < or > z is unbalanced, then we can improve the
+// summed distance by moving in the corresponding direction.
+let unbalanced_num_1 (l:list int{length l > 0}) (z:int)
+ : Lemma (requires num_lt l z >= num_gte l z )
+         (ensures summed_distance_to l z >= summed_distance_to l (z-1)) =   
+   summed_distance_to_neighbor_minus l z
+
+let unbalanced_num_2 (l:list int{length l > 0}) (z:int)
+ : Lemma (requires num_lte l z <= num_gt l z )
+         (ensures summed_distance_to l (z +1) <= summed_distance_to l z) =
+   summed_distance_to_neighbor_plus l z
+
+// If we move the target point, then lt and gt change as well
+let rec change_partition (l:list int) (z:int)
+ : Lemma (ensures num_lt l z <= num_lt l (z+1) /\
+                  num_lte l z <= num_lte l (z+1) /\
+                  num_gt l z >= num_gt l (z+1) /\
+                  num_gte l z >= num_gte l (z+1))  =
+   match l with
+   | [] -> ()
+   | hd :: tl -> change_partition tl z
+
+#push-options "--z3rlimit 15"
+let rec balanced_num_pos (l:list int{length l > 0}) (m:int) (z:int{z >= m})
+ : Lemma (requires num_lt l m >= num_gte l m )
+         (ensures num_lt l z >= num_gte l z /\ summed_distance_to l m <= summed_distance_to l z)
+         (decreases (z-m)) =
+   if m = z then
+     ()
+   else (
+     balanced_num_pos l m (z-1);
+     // num_lt l (z-1) >= num_gte l (z-1)
+     // summed_distance_to l m <= summed_distance_to l (z-1)
+     //
+     // want to prove: summed_distance_to l z-1 <= summed_distance_to l z)
+     // which is unbalanced_sum_1
+     //
+     // for that we need num_lt l z >= num_gte l z
+     change_partition l (z-1);
+     assert( num_lt l z >= num_lt l (z-1) );
+     assert( num_gte l z <= num_gte l (z-1) ); 
+     assert( num_lt l z >= num_gte l z );
+     unbalanced_num_1 l z
+   )
+
+let rec balanced_num_neg (l:list int{length l > 0}) (m:int) (z:int{z <= m})
+ : Lemma (requires num_lte l m <= num_gt l m )
+         (ensures num_lte l z <= num_gt l z /\ summed_distance_to l m <= summed_distance_to l z)
+         (decreases (m-z)) =
+   if m = z then
+     ()
+   else (
+     balanced_num_neg l m (z+1);
+     change_partition l z;
+     assert( num_lte l z <= num_lte l (z+1) );
+     assert( num_gt l z >= num_gt l (z+1) ); 
+     assert( num_gt l z >= num_lte l z );
+     unbalanced_num_2 l z
+   )
+#pop-options
+
+// OK, the two theorems above show that if the number of points equal to the median were zero,
+// then all other points would be no better than m.  How can we expand this
+// to including points equal to m?  (There must be at least one.)
+// ... and, I still didn't solve the problem of demonstrating that the median as calculated
+// actually has the property that numbers < m and numbers > m are balanced.
+// (Defining exactly what that balance is seems difficult to due division rounding down, too.)
 
 let calc_part_1 (fn:string) : ML unit =
   let fd = open_read_file fn in
