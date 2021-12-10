@@ -59,5 +59,6 @@ Is there a way to express the idea above using only a single type?
 
 Are F* type constructors arrow types?
 
+What would be an appropriate model for proving the parser's correctness?
 
 
