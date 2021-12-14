@@ -7,6 +7,8 @@ I wonder if the corner case of the first and last characters actually matters to
 correctness.  I could give it a try, I suppose.  They only participate in one pair each, so they
 are the only characters that are not double-counted in the pair population count.
 
+I missed the obvious solution for double-counting pairs: only count the rightmost element in each pair!  Oops.
+
 ## F* successes
 
 Type-checking helped a lot when I was rewriting functions that had worked on single values
