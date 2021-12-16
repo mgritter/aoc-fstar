@@ -153,13 +153,19 @@ let rec tail_implies_subset (#a:eqtype) (l:(list a){Cons? l}) :
   Lemma ( Set.subset (Set.as_set (List.Tot.tl l)) (Set.as_set l)) =
    ()
 
-// Can't do this because count_paths is Dv, not Tot
-(*
 let rec count_paths_decreases (m:adj_map) (curr:string) (visited2:option (s:string{is_little s}))
   (x:Set.set (s:string{is_little s})) (y:Set.set (s:string{is_little s}))
- : Lemma ( Set.subset x y ==> count_paths m curr x visited2 <= count_paths m curr y visited2 ) =
-   admit() 
-*)
+  (max_path_len:nat)
+ : Lemma (ensures Set.subset x y ==> count_paths_tot max_path_len m curr x visited2 
+            <= count_paths_tot max_path_len m curr y visited2 )
+         (decreases max_path_len) =
+   if max_path_len = 0 then
+     ()
+   else
+     // TODO: show that the fold gives a sum of the recursive calls
+     // then apply induction to each of those calls?
+     count_paths_decreases m curr visited2 x y (max_path_len - 1);
+     admit()
 
 let solve_part_2 (input:list (string*string)) : ML unit =
   let m = create_adjacency_map input in
