@@ -21,6 +21,37 @@ String concatenation allowed me to easily add more detailed error messages to fi
 
 ## F* problems
 
+This function fails the termination checker:
+
+```FStar
+let rec sum_versions (msg:message) : Tot nat =
+  match msg with 
+  | Literal version value -> version
+  | Operator version operands ->
+     version + (List.Tot.fold_left (fun (t:nat) m -> t + (sum_versions m)) 0 operands)
+```
+
+It should be that `operands << m`, but I'm not sure whether that carries through so that the
+individual elements are also `<< m`?  Or is that information just lost going through
+`fold_left`?  Changing the function parameter to `(m:message{m << msg})` did not help.
+
+This alternate version does not work either:
+
+```FStar
+let rec sum_versions (msg:message) : Tot nat =
+  match msg with 
+  | Literal version value -> version
+  | Operator version [] -> version
+  | Operator version (hd::tl) -> 
+       (sum_versions hd) + sum_versions (Operator version tl)
+```
+
+This assertion fails:
+```FStar
+assert( Operator version tl << Operator version (hd::tl) );
+```
+So I don't know how to prove that the function terminates, without adding an height parameter to the type.
+
 Why does the F* standard library include `min` but not `max`?
 
 ## Questions
