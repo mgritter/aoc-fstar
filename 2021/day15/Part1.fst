@@ -14,6 +14,43 @@ let matrix (a:Type) (width:nat{0<width}) (height:nat{0<height}) =
 let value_at #a #w #h (m:matrix a w h) (i:nat{0 <= i && i < h}) (j:nat{0 <= j && j < w}) : Tot a =
   List.Tot.index (List.Tot.index m i) j  
 
+let upd_at #a #w #h (m:matrix a w h) (i:nat{0 <= i && i < h}) (j:nat{0 <= j && j < w}) (v:a) 
+  : Tot (matrix a w h) =
+  let pre_y, row, post_y = List.Tot.split3 m i in
+    assert( List.Tot.length row = w );
+    let pre_x, _, post_x = List.Tot.split3 row j in
+      List.Pure.lemma_split3_length m i;
+      List.Pure.lemma_split3_length row j;
+      assert( List.Tot.length pre_x = j );
+      assert( List.Tot.length (v :: post_x) = w - j);
+      let replacement_vec : (vector a w) = (pre_x @ (v :: post_x)) in
+        assert( List.Tot.length pre_y = i );
+        assert( List.Tot.length (replacement_vec :: post_y) = h - i);
+        pre_y @ (replacement_vec :: post_y)
+
+
+let neighbor_at #a #w #h (m:matrix a w h) (y:nat{y < h}) (x:nat{x < w}) 
+  (dy:int{-1 <= dy && dy <= 1}) (dx:int{-1 <= dx && dx <= 1}) (old:list (y:nat{y<h}*x:nat{x<w})) 
+  : Tot (list (y:nat{y<h}*x:nat{x<w})) = 
+  if (y = 0 && dy = -1) then
+    old
+  else if (x = 0 && dx = -1) then
+    old
+  else if (y = h - 1 && dy = 1) then
+    old
+  else if (x = w - 1 && dx = 1) then
+    old
+  else
+    ((y + dy),(x+dx)) :: old
+    
+let neighborhood #a #w #h (m:matrix a w h ) (y:nat{y<h}) (x:nat{x<w}) 
+: Tot (list (y:nat{y<h}*x:nat{x<w})) = 
+  neighbor_at m y x 0 (-1)
+  (neighbor_at m y x (-1) 0
+  (neighbor_at m y x 1 0
+  (neighbor_at m y x 0 1
+    [])))
+
 let rec parse_row_aux (s:list char) (expected_len:nat) : Tot
  (option (vector nat expected_len)) 
  (decreases expected_len) =
@@ -95,9 +132,9 @@ let rec merge_heaps (#v:Type) (#npl_a:int_1) (a:heapnode v npl_a) (#npl_b:int_1)
   : Tot (npl_result:int_1 & (heapnode v npl_result)) 
     (decreases %[a;b]) =
   if Null? a then
-     (| npl_a, a |)
-  else if Null? b then
      (| npl_b, b |)
+  else if Null? b then
+     (| npl_a, a |)
   else if Node?.key a <= Node?.key b then (
      // a has the minimum key
      let new_left = Node?.left a in
@@ -140,6 +177,11 @@ let rec merge_heaps (#v:Type) (#npl_a:int_1) (a:heapnode v npl_a) (#npl_b:int_1)
 let insert (#v:Type) (#npl_root:int_1) (root:heapnode v npl_root) (key:nat) (value:v) 
   : Tot (npl_result:int_1 & (heapnode v npl_result)) =
   merge_heaps root (singleton_heap key value)
+
+let n0 : heapnode nat (-1) = Null
+let n2 = insert #nat (dsnd (insert n0 2 2)) 1 1
+let _ = assert_norm( (dsnd n2)
+  == (Node 0 (Node (-1) Null 2 2 (-1) Null) 1 1 (-1) Null ))
 
 noeq type pop_result : v:Type -> Type =
   | MinValue : (#v:Type) -> (key:nat) -> (value:v) -> (npl:int_1) -> (new_root:heapnode v npl) -> pop_result v
@@ -219,18 +261,52 @@ let start_matrix (w:nat{w>0}) (h:nat{h>0}) : Tot (matrix distance w h) =
 let finish_node #w #h (distances:matrix distance w h)
    (y:nat{y<h}) (x:nat{x<w}) (d_xy:nat) 
    : Tot (matrix distance w h) = 
-   admit()
-   
+   upd_at distances y x (Finished d_xy)
+
+let print_distances #w #h (distances:matrix distance w h) : ML unit = 
+    let map_row (row:(vector distance w)) : ML unit =
+       List.iter (fun (d:distance) ->
+         match d with 
+         | Infinity -> print_string "∞|"
+         | Finite n -> print_string (sprintf "%d|" n)
+         | Finished n -> print_string (sprintf "F%d|" n)
+        ) row;
+       print_string "\n"
+  in 
+    List.iter map_row distances
+
 let update_neighbors #w #h (weights:matrix nat w h) (distances:matrix distance w h)
    (y:nat{y<h}) (x:nat{x<w}) (d_xy:nat) 
    : Tot (matrix distance w h) = 
-   admit()
+   List.Tot.fold_left (fun (m:matrix distance w h) (p:(ny:nat{ny<h}*nx:nat{nx<w})) ->
+     // Update the distance to the lower of current value and d_xy + cost to enter
+     // (ny,nx)
+     let old_value = value_at m (fst p) (snd p) in
+     let new_cost = d_xy + value_at weights (fst p) (snd p) in 
+       match old_value with
+       | Infinity -> upd_at m (fst p) (snd p) (Finite new_cost)
+       | Finite old_cost -> if old_cost > new_cost then
+           upd_at m (fst p) (snd p) (Finite new_cost)
+         else
+           m
+       | Finished _ -> m
+   ) distances (neighborhood distances y x)
 
 let insert_neighbors #w #h (distances:matrix distance w h) 
     (y:nat{y<h}) (x:nat{x<w})    
     (npl:int_1) (pri_queue:heapnode (x:nat{x<w}*y:nat{y<h}) npl) 
-  : Tot (npl_result:int_1 & (heapnode (x:nat{x<w}*y:nat{y<h})  npl_result)) =
-  admit()
+  : Tot (npl_result:int_1 & (heapnode (x:nat{x<w}*y:nat{y<h}) npl_result)) =
+   let start_queue : (npl:int_1 & (heapnode (x:nat{x<w}*y:nat{y<h}) npl)) = 
+     (| npl, pri_queue |) in
+   // Ack, type inferece totally failed on pq
+   List.Tot.fold_left (fun (pq:(npl:int_1 & (heapnode (x:nat{x<w}*y:nat{y<h}) npl))) nn ->
+     let new_cost = value_at distances (fst nn) (snd nn) in 
+       match new_cost with
+       | Infinity -> pq // shouldn't happen?       
+        // Aaaugh I mixed up the order of the pairs between the two data structures
+       | Finite cost -> (insert (dsnd pq) cost (snd nn, fst nn))
+       | Finished _ -> pq  
+   ) start_queue (neighborhood distances y x)
 
 let rec dijkstras #w #h (weights:matrix nat w h) (distances:matrix distance w h) 
    (pq_npl:int_1) (pri_queue:heapnode (x:nat{x<w}*y:nat{y<h}) pq_npl) 
@@ -243,6 +319,8 @@ let rec dijkstras #w #h (weights:matrix nat w h) (distances:matrix distance w h)
        let y = (snd #(x:nat{x<w}) #(y:nat{y<h}) value) in
        let x = (fst #(x:nat{x<w}) #(y:nat{y<h}) value) in
        let v = value_at distances y x in (
+         // Proving the relationship between the distances matrix and the
+         // contents of the priority queue is a good goal, but challenging.
          assume( ~ (Infinity? v) );
          match v with 
          | Finished _ ->
@@ -254,8 +332,9 @@ let rec dijkstras #w #h (weights:matrix nat w h) (distances:matrix distance w h)
               dijkstras weights new_distances_2 (dfst new_q) (dsnd new_q)
        )
      
-let find_minimum_path #w #h (m:matrix nat w h) : Dv distance =
+let find_minimum_path #w #h (m:matrix nat w h) : ML distance =
    let dmatrix = dijkstras m (start_matrix w h) 0 (singleton_heap 0 (0,0)) in
+     print_distances dmatrix;
      value_at dmatrix (h-1) (w-1)     
 
 let calc_part_1 (fn:string): ML unit =
@@ -264,7 +343,13 @@ let calc_part_1 (fn:string): ML unit =
       match m with
       | Matrix w h board ->
          let soln = find_minimum_path board in
-           admit()
+           match soln with
+           | Finished v ->
+             print_string (sprintf "Minimum-cost path: %d\n" v) 
+           | Finite v ->
+             print_string (sprintf "Finite value: %d\n" v)
+           | Infinity ->
+             print_string "Error, infinite value\n"
 
 let _ = calc_part_1 "example.txt"
 let _ = calc_part_1 "input.txt"
