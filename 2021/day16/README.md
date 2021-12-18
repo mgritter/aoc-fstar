@@ -52,6 +52,9 @@ assert( Operator version tl << Operator version (hd::tl) );
 ```
 So I don't know how to prove that the function terminates, without adding an height parameter to the type.
 
+*ETA:*: Nikolaos Chatzikonstantinou provided me with a version of this function that terminates, by
+explicitly iterating over the list in a separate mutually-recursive function.
+
 Why does the F* standard library include `min` but not `max`?
 
 ## Questions

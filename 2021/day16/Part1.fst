@@ -181,14 +181,29 @@ let rec print_message (m:message) : ML unit =
      List.iter print_message operands;
      print_string ")"
 
-// operands << Operator version operands, but
-// the individual messages in operands are not << the original message?
-// So can't prove termination.
-let rec sum_versions (m:message) : ML nat =
+(* Non-working version of sum_versions, cannot prove termination:
+
+let rec sum_versions (m:message) : Tot nat (decreases %[m;0]) =
   match m with 
   | Literal version value -> version
   | Operator version operands ->
-     version + (List.fold_left (fun (t:nat) m -> t + (sum_versions m)) 0 operands)
+     List.Tot.fold_left fold_versions version operands
+and fold_versions (t:nat) (m:message) : Tot nat (decreases %[m;1]) =
+  t + (sum_versions m)
+
+Also fails: rewriting the message to have a shorter list, giving 
+a lambda with an explicit << requirements, etc.
+*)
+
+// Working version, courtesy of Nikolaos Chatzikonstantinou:
+let rec sum_versions (m:message) : Tot nat =
+  match m with
+  | Literal version value -> version
+  | Operator version operands -> version + sum_aux operands
+and sum_aux (m:list message) : Tot nat
+  = match m with
+    | [] -> 0
+    | head :: rest -> (sum_versions head) + (sum_aux rest)
 
 let example1 = "D2FE28"
 let example2 = "38006F45291200"
