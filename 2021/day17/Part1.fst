@@ -102,12 +102,9 @@ let y_maximum_exists (init_velocity:int) (n:nat)
 // y(n) = n*y_v - (n^2-n)/2        
 // -105 <= n*y_v - (n^2-n)/2 <= -57
 //
-// *waves hands furiously* ...
-//            .........
-//         .........
-//      .....
-//     ....
-//    ....
+// *waves hands furiously*
+//
+// What does the space of possible solutions look like?
 
 let in_range (v:int) (min:int) (max:int) : Tot bool =
   min <= v && v <= max
@@ -124,8 +121,6 @@ type feasible : (x_min:int) -> (x_max:int) -> (y_min:int) -> (y_max:int) -> Type
 // If a <= n*y_v - (n^2-n)/2 <= b, then
 //  a + (n^2-n)/2 <= n * y_v <= b + (n^2-n)/2
 //  a/n + (n-1)/2 <= y_v <= b/n + (n-1)/2
-//  a  + n(n-1)/2 <= n * y_v <= b + n*(n-1)/2
-//  a <= n ( y_v - (n-1)/2 )  <= b 
 //
 // Is the interval ever small enough not to contain an integer?
 // Yes, (n-1)/2 is either an integer or half an integer, but 
@@ -135,33 +130,107 @@ type feasible : (x_min:int) -> (x_max:int) -> (y_min:int) -> (y_max:int) -> Type
 
 let maximum_x (x_min:int) (x_max:int) : int = x_max
 
+#push-options "--z3rlimit 60"
 let maximum_x_correct (x_min:int) (x_max:int) (n:nat{n>0}) (x_v:int)
  : Lemma( in_range (x_closed_form n x_v) x_min x_max ==> x_v <= maximum_x x_min x_max ) =
    ()
-          
+#pop-options
+
+// The proof above depends on rational numbers, can we rewrite it using only integers?
+//  a <= n * y_v - n*(n-1)/2  <= b 
+//  a + n(n-1)/2 <= n * y_v <= b + n(n-1)/2
+//                  ^^^^
+//                  multiple of n
+//     ^^^ equals 0 or X mod n        
+// When n is large enough, a+... and b+... lie between two multiples of n,
+// so there cannot be another multiple of n between them.
+// 
+// When n is odd, this is at
+//  n((n-1)/2 - 1) < n(n-1)/2 + a < n(n-1)/2 + b < n(n-1)/2 
+//  n((n-1)/2-1) - n(n-1)/2 < a < b < 0
+//  -n < a < b < 0
+//  n > -a > -b
+// 
+// When n is even, then the multiple of n smaller than 
+// n(n-1)/2 is n * floor((n-1)/2), so:
+//  floor((n-1)/2) n < n(n-1)/2 + a < n(n-1)/2 + b < floor( (n-1)/ 2 + 1) * n
+//
+//     |            |          |             |                |
+//    n*k   n(n-1)/2+a   n(n-1)/2+b    n(n-1)/2          n*k   where k = (n-1)/2
+// 
+//  n*floor( (n-1)/2 ) - n(n-1)/2 < a < b < 0
+//  n*( floor( (n-1)/2 ) - (n-1)/2 ) < a < b < 0
+//  -1/2 n < a < b < 0
+//  n > -2a > -2b
+
+
 let maximum_n (y_min:int{y_min < 0}) (y_max:int{y_max < 0 && y_max >= y_min}) : nat =
    // Want (y_max - y_min) / n >= 0.5
    // 2(y_max - y_min) >= n
-   op_Multiply 2 (y_max - y_min)
+   op_Multiply (-2) y_min
+
+let y_n_inequality (y_min:int{y_min < 0}) (y_max:int{y_max < 0 && y_max >= y_min}) (n:nat{n>0}) (y_v:int)
+  : Lemma ( in_range (y_closed_form n y_v) y_min y_max ==> 
+            ( y_min + (op_Multiply n (n-1)) / 2 <= op_Multiply n y_v 
+            /\ op_Multiply n y_v <= y_max + (op_Multiply n (n-1)) / 2)) 
+ = ()
+
+// F* cannot prove this automatically
+// and its absence caused a lot of problems
+let n_is_odd_helper (n:nat{n>0 /\ n % 2 = 1})
+   : Lemma ( (op_Multiply n (n-1)) / 2 = op_Multiply n ((n-1)/2) ) =     
+   assert( op_Multiply 2 ((n-1)/2) = (n-1) ) 
+
+let ymin_mod_odd_n_lemma (y_min:int{y_min < 0}) (y_max:int{y_max < 0 && y_max >= y_min}) (n:nat{n>0 /\ n %2 = 1})
+  : Lemma ( (y_min + (op_Multiply n (n-1)) / 2 ) - op_Multiply n ( (y_min/n) + (n-1)/2)  = y_min % n)
+  = n_is_odd_helper n;
+   ()
+
+let ymax_mod_odd_n_lemma (y_min:int{y_min < 0}) (y_max:int{y_max < 0 && y_max >= y_min}) (n:nat{n>0 /\ n %2 = 1})
+  : Lemma ( (y_max + (op_Multiply n (n-1)) / 2 ) - op_Multiply n ( (y_max/n) + (n-1)/2)  = y_max % n)
+  = n_is_odd_helper n;
+   ()
+
+// This also seems unnecessarily difficult to prove
+let n_is_even_helper (n:nat{n > 0 /\ n % 2 = 0})
+  : Lemma ((op_Multiply n (n-1)) / 2 - op_Multiply n ((n-1)/2) = n/2 )
+  = let k = n/2 in
+    let k2 = op_Multiply 2 k in
+      assert( (op_Multiply k2 (k2-1)) / 2 - op_Multiply (k-1) k2 = k)
+  
+let ymin_mod_even_n_lemma (y_min:int{y_min < 0}) (y_max:int{y_max < 0 && y_max >= y_min}) (n:nat{n>0 /\ n % 2 = 0})
+  : Lemma ( (y_min + (op_Multiply n (n-1)) / 2 ) - op_Multiply n ( (y_min/n) + (n-1)/2)  = 
+               (y_min % n) + (n/2) )
+  = n_is_even_helper n;
+    // assert( y_min - op_Multiply n (y_min/n) = (y_min % n) );
+    // assert( (op_Multiply n (n-1)) / 2 - op_Multiply n ((n-1)/2) = n/2 );
+    ()
+  
+let ymax_mod_even_n_lemma (y_min:int{y_min < 0}) (y_max:int{y_max < 0 && y_max >= y_min}) (n:nat{n>0 /\ n %2 = 0})
+  : Lemma ( (y_max + (op_Multiply n (n-1)) / 2 ) - op_Multiply n ( (y_max/n) + (n-1)/2) = (y_max % n) + (n/2))
+  = n_is_even_helper n;
+    ()
+
+// OK, in the even case we've got that the difference from the previous multiple of n is
+// (ymin % n) + (n/2), and in the odd case it is (ymin % n).  We need to set n large enough that this is
+// never equal to n.
+// 
+// That is -2 * ymin (which is larger than -2 * ymax, since both are negative.)
+let n_large_enough (y_min:int{y_min < 0}) (y_max:int{y_max < 0 && y_max >= y_min}) (n:nat)
+ : Lemma (requires (n > op_Multiply (-2) y_min ))
+         (ensures (y_min % n) + (n/2) >= n) =
+  assert( y_min % n > 0 );
+  assert( y_min % n = n + y_min );
+  assert( y_min % n + (n/2) = n + y_min + (n/2) );  
+  assert( n/2 >= op_Multiply (-1) y_min );
+  assert( y_min % n + (n/2) >= n );
+  ()
+
 
 #push-options "--z3rlimit 120"
 let maximum_n_correct (y_min:int{y_min < 0}) (y_max:int{y_max < 0 && y_max >= y_min}) (n:nat{n>0}) (y_v:int)
   : Lemma( in_range (y_closed_form n y_v) y_min y_max ==> n <= maximum_n y_min y_max )
-  = // This might be hard because my proof did not use integers!
-    // assert( in_range (y_closed_form n y_v) y_min y_max ==>
-    //        y_min <= (op_Multiply n y_v) - (op_Multiply (n-1) n) / 2 );
-    // assert( in_range (y_closed_form n y_v) y_min y_max ==>
-    //        y_min + (op_Multiply (n-1) n) / 2  <= (op_Multiply n y_v) );
-    //assert( in_range (y_closed_form n y_v) y_min y_max ==>
-    //         (op_Multiply 2 y_min) + (op_Multiply (n-1) n)  <= (op_Multiply 2 (op_Multiply n y_v)));
-    assert_spinoff( in_range (y_closed_form n y_v) y_min y_max ==>
-            (op_Multiply 2 y_min) / n + (n-1)  <= (op_Multiply 2 y_v));
-    assert_spinoff( in_range (y_closed_form n y_v) y_min y_max ==>
-            (op_Multiply 2 y_v) <= (op_Multiply 2 y_max) / n + (n-1) );
-    assert_spinoff( in_range (y_closed_form n y_v) y_min y_max ==>
-            ( (op_Multiply 2 y_min) / n + (n-1)  <= (op_Multiply 2 y_v) /\
-              (op_Multiply 2 y_v) <= (op_Multiply 2 y_max) / n + (n-1)) );
-     ()
+     = admit()
 #pop-options            
 
 
