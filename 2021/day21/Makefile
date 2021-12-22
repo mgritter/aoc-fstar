@@ -14,3 +14,7 @@ $(programs): %: %.fst out
 
 out:
 	mkdir -p out
+
+universes.svg:
+  python3 convert_to_dot.py < log.txt > universes.dot
+  sfdp -T svg universes.dot -o universes.svg
