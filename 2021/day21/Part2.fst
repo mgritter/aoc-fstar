@@ -110,7 +110,7 @@ let index_is_invertible (g:game_state) :
 
 let predecessor_states_1 (g:game_state) : 
   (list (game_state * nat)) =
-  if g.player_1_score >= 21 && g.player_2_score >= 21 then
+  if g.player_2_score >= 21 then
     []
   else
      let previous_score = g.player_1_score - g.player_1_position in
@@ -128,7 +128,7 @@ let predecessor_states_1 (g:game_state) :
 
 let predecessor_states_2 (g:game_state) : 
   (list (game_state * nat)) =
-  if g.player_1_score >= 21 && g.player_2_score >= 21 then
+  if g.player_1_score >= 21 then
     []
   else
      let previous_score = g.player_2_score - g.player_2_position in
@@ -161,29 +161,21 @@ type state_counts = (counts:(list nat){List.Tot.length counts = state_space})
 elements in [l]. Requires, at type-checking time, [f] to be a pure
 total function. Named as in: OCaml *)
 
-val mapi_init: (l:list 'a) -> (x:list 'a) -> 
-((n:nat{n < List.Tot.length l}) -> 'a -> Tot 'b) 
--> (i:nat{i = List.Tot.length l - List.Tot.length x}) -> Tot (list 'b)
-let rec mapi_init l x f i = match x with
-    | [] -> []
-    | hd :: tl -> (f i hd)::(mapi_init l tl f (i+1))
+let rec mapi_init #a #b (orig:list a) (x:list a)
+  (f:(n:nat{n < List.Tot.length orig}) -> a -> Tot b)
+  (i:nat{i = List.Tot.length orig - List.Tot.length x})
+  (prev:(list b){List.Tot.length prev + List.Tot.length x = List.Tot.length orig})
+: Tot (l:(list b){List.Tot.length l = List.Tot.length orig}) =
+match x with 
+  | [] -> prev
+  | hd :: tl -> 
+     let new_list = List.Tot.snoc (prev, (f i hd)) in
+       List.Tot.lemma_snoc_length (prev, (f i hd));
+       mapi_init orig tl f (i+1) new_list
 
-val mapi: (l:list 'a) -> ((n:nat{n < List.Tot.length l}) -> 'a -> Tot 'b) -> Tot (list 'b)
-let mapi l f = mapi_init l l f 0
-
-let rec mapi_lemma_helper #a #b (l:list a) (x:list a) (f: (n:nat{n < List.Tot.length l}) -> a -> Tot b) 
-  (i:nat{i = List.Tot.length l - List.Tot.length x})
- : Lemma (ensures (List.Tot.length (mapi_init l x f i)) = List.Tot.length x)  =
-    match x with
-    | [] -> ()
-    | h::t -> 
-       mapi_lemma_helper l t f (i+1)
-
-let mapi_lemma #a #b (l:list a) (f: (n:nat{n < List.Tot.length l}) -> a -> Tot b) 
- : Lemma (ensures (List.Tot.length (mapi l f)) = List.Tot.length l)
-         [SMTPat (mapi l f)] =
-   mapi_lemma_helper l l f 0
- 
+let mapi #a #b (l:list a) (f:(n:nat{n < List.Tot.length l}) -> a -> Tot b) 
+ : Tot (ol:(list b){List.Tot.length ol = List.Tot.length l})
+  = mapi_init l l f 0 []
 
 let transition_all_universes (turn:player) (counts:state_counts) : state_counts =
   let add_predecessors (i:nat{i<state_space}) c : nat =
@@ -195,7 +187,6 @@ let transition_all_universes (turn:player) (counts:state_counts) : state_counts 
              op_Multiply (snd pred) (List.Tot.index counts (to_index (fst pred)))) <: nat)
         0 predecessor_universes
   in
-  mapi_lemma counts add_predecessors;
   mapi counts add_predecessors
 
 let is_game_won (g:game_state) : bool =
