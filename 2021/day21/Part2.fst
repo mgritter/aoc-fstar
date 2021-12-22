@@ -111,11 +111,16 @@ let index_is_invertible (g:game_state) :
 let predecessor_states_1 (g:game_state) : 
   (list (game_state * nat)) =
   if g.player_2_score >= 21 then
-    []
+    [(g,1)]  // other player already one!  No move for player 1.
   else
-     let previous_score = g.player_1_score - g.player_1_position in
+    // If player 1 has won, then keep that count around
+    // (but do not split the timeline.)
+    List.Tot.append (if g.player_1_score >= 21 then [(g,1)] else [])
+    (let previous_score = g.player_1_score - g.player_1_position in
        if previous_score < 0 then
-         []
+         [] // impossible
+       else if previous_score >= 21 then
+         [] // player 1 can't move after winning
        else
          List.Tot.map
            (fun (pos_weight) ->
@@ -124,16 +129,20 @@ let predecessor_states_1 (g:game_state) :
                player_1_position=(fst pos_weight);               
              },snd pos_weight)
            )
-         (backwards_3d3_distribution g.player_1_position)
+         (backwards_3d3_distribution g.player_1_position))
 
 let predecessor_states_2 (g:game_state) : 
   (list (game_state * nat)) =
   if g.player_1_score >= 21 then
-    []
+    [(g,1)]  // other player already won!  No move for player 2.
   else
-     let previous_score = g.player_2_score - g.player_2_position in
+    // If player 2 has won, then keep that count around
+    List.Tot.append (if g.player_2_score >= 21 then [(g,1)] else [])
+    (let previous_score = g.player_2_score - g.player_2_position in
        if previous_score < 0 then
-         []
+         [] // impossible
+       else if previous_score >= 21 then
+         [] // player 2 can't move after winning
        else
          List.Tot.map
            (fun (pos_weight) ->
@@ -142,7 +151,10 @@ let predecessor_states_2 (g:game_state) :
                player_2_position=(fst pos_weight);               
              },snd pos_weight)
            )
-         (backwards_3d3_distribution g.player_2_position)
+         (backwards_3d3_distribution g.player_2_position))
+
+// To prove: if predecessor G returns H, then there is a move from G to H
+// or they are the same and one player has won.
 
 type player = (turn:nat{turn = 1 \/ turn=2})
 
@@ -155,27 +167,21 @@ let predecessor_states (turn:player) (g:game_state) :
 
 type state_counts = (counts:(list nat){List.Tot.length counts = state_space})
 
-// This is completely bogus:
-(** [mapi f l] applies, for each [k], [f k] to the [k]-th element of
-[l] and returns the list of results, in the order of the original
-elements in [l]. Requires, at type-checking time, [f] to be a pure
-total function. Named as in: OCaml *)
-
+// This is an improved version of mapi that provides a refinement on the index
+// value (so it is within range) and guarantees the length matches.
+// 
+// using snoc seemed to be slower than this non-tail-recursive version
 let rec mapi_init #a #b (orig:list a) (x:list a)
   (f:(n:nat{n < List.Tot.length orig}) -> a -> Tot b)
   (i:nat{i = List.Tot.length orig - List.Tot.length x})
-  (prev:(list b){List.Tot.length prev + List.Tot.length x = List.Tot.length orig})
-: Tot (l:(list b){List.Tot.length l = List.Tot.length orig}) =
+: Tot (l:(list b){List.Tot.length l = List.Tot.length x}) =
 match x with 
-  | [] -> prev
-  | hd :: tl -> 
-     let new_list = List.Tot.snoc (prev, (f i hd)) in
-       List.Tot.lemma_snoc_length (prev, (f i hd));
-       mapi_init orig tl f (i+1) new_list
+  | [] -> []
+  | hd :: tl -> (f i hd) :: mapi_init orig tl f (i+1)
 
 let mapi #a #b (l:list a) (f:(n:nat{n < List.Tot.length l}) -> a -> Tot b) 
  : Tot (ol:(list b){List.Tot.length ol = List.Tot.length l})
-  = mapi_init l l f 0 []
+  = mapi_init l l f 0 
 
 let transition_all_universes (turn:player) (counts:state_counts) : state_counts =
   let add_predecessors (i:nat{i<state_space}) c : nat =
@@ -185,7 +191,7 @@ let transition_all_universes (turn:player) (counts:state_counts) : state_counts 
           (fun tot (pred:(game_state*nat))  -> 
              (tot + 
              op_Multiply (snd pred) (List.Tot.index counts (to_index (fst pred)))) <: nat)
-        0 predecessor_universes
+        0 predecessor_universes       
   in
   mapi counts add_predecessors
 
@@ -208,6 +214,20 @@ let rec all_universes_finished (i:nat) (counts:state_counts)
             else
                all_universes_finished (i+1) counts
 
+let rec show_states (i:nat) (counts:state_counts) : ML unit = 
+  if i >= state_space then 
+    ()
+  else
+     let c = List.Tot.index counts i in
+       if c = 0 then
+         show_states (i+1) counts
+       else
+         let g = from_index i in 
+            print_string (sprintf "[%d] %d: p1 score %d position %d, p2 score %d position %d\n"
+                          i c g.player_1_score g.player_1_position g.player_2_score g.player_2_position );
+            show_states (i+1) counts
+
+
 let rec win_count (i:nat) (counts:state_counts) (p1:nat) (p2:nat) 
 : Tot (nat*nat) (decreases state_space - i) =
   if i >= state_space then
@@ -219,11 +239,12 @@ let rec win_count (i:nat) (counts:state_counts) (p1:nat) (p2:nat)
        else
          let g = from_index i in 
             if g.player_1_score >= 21 then
-               win_count (i+1) counts (p1+1) p2
+               win_count (i+1) counts (p1+c) p2
             else
-               win_count (i+1) counts p1 (p2+1)
+               win_count (i+1) counts p1 (p2+c)
 
 let rec play_until_universes_finished (turn:player) (counts:state_counts) : ML state_counts =
+  show_states 0 counts;
   if all_universes_finished 0 counts then
      counts
   else (
@@ -259,7 +280,7 @@ let init_vector (g:game_state) : state_counts =
   single_one state_space (to_index g)
 
 let calc_part_2 () : ML unit = 
-  let init = init_vector example in
+  let init = init_vector init in
   let final = play_until_universes_finished 1 init in
   let counts = win_count 0 final 0 0 in
   print_string (sprintf "Player 1: %d\n" (fst counts));
