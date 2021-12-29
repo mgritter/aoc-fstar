@@ -4,6 +4,17 @@ Not all features of the F* language are mentioned in the tutorials. Some are
 in wiki pages, and some just seem to be folk knowledge.  This page attempts
 to capture a list.
 
+## Skipping an implicit arguments
+
+If you have a function with multiple implicit arguments but want to specify one of them, you can skip
+preceding implicit arguments with `#_` and the normal inference will be used:
+
+```FStar
+let f (#a:Type) (#b:Type) (x:a) (y:b) : (a*b)= (x+y,x-y)
+
+let g = f #_ #nat 7 3
+```
+
 ## Dependent pairs and tuples
 
 > the correct syntax for defining a dependent pair type is (x:a & b(x)) (if the parens are necessary)
@@ -52,6 +63,12 @@ https://github.com/FStarLang/FStar/wiki/Sugar-for-manipulating-connectives-in-cl
 What does `^->` mean?
 
 Used in `FStar.map` but not defined in  https://github.com/FStarLang/FStar/wiki/F%2A-symbols-reference
+
+I think this is defined in `FStar.FunctionalExtensionality.fsti`:
+
+```
+let op_Hat_Subtraction_Greater (a b: Type) = restricted_t a (fun _ -> b)
+```
 
 ## Type ascription
 
