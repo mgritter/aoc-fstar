@@ -3,6 +3,7 @@ module Part1
 open FStar.IO
 open FStar.All
 open FStar.Printf
+open FStar.Option
 
 type var_name =
  | W
@@ -356,6 +357,35 @@ let rec print_expr (e:expr) (depth:nat) : ML unit =
       print_expr f (depth+1);      
       print_string ") "
 
+let mapTotPair #a #b (f:a -> a -> Tot b) (x:option a) (y:option a) : option b =
+  match (x,y) with
+  | Some x1, Some y1 -> Some (f x1 y1)
+  | _ -> None
+
+let mapNonzeroPair (f:int -> nonzero -> Tot int) (x:option int) (y:option int) : option int =
+  match (x,y) with
+  | Some x1, Some 0 -> None
+  | Some x1, Some y1 -> Some (f x1 y1)
+  | _ -> None
+
+type input_vals = list (z:int{z >= 1 /\ z <= 9})
+
+let rec eval_expr (e:expr) (inputs:input_vals) : Tot (option int) =
+  match e with 
+   | InputValue i -> if i < List.Tot.length inputs 
+      then Some (List.Tot.index inputs i) else Some 1 
+   | Literal z -> Some z
+   | AddOp a b -> mapTotPair (+) (eval_expr a inputs) (eval_expr b inputs)
+   | MulOp a b -> mapTotPair op_Multiply (eval_expr a inputs) (eval_expr b inputs)
+   | DivOp a b -> mapNonzeroPair (/) (eval_expr a inputs) (eval_expr b inputs)
+   | ModOp a b -> mapNonzeroPair (%) (eval_expr a inputs) (eval_expr b inputs)
+   | EqlOp a b -> ( match (eval_expr a inputs,eval_expr b inputs) with
+                  | Some av, Some bv -> if av = bv then Some 1 else Some 0
+                  | _ -> None )
+   | IfEqElse a b t f -> ( match (eval_expr a inputs,eval_expr b inputs) with
+                  | Some av, Some bv -> if av = bv then (eval_expr t inputs) else (eval_expr f inputs)
+                  | _ -> None)
+
 let print_registers (regs:alu_registers) : ML unit =
   print_string "W: ";
   print_expr regs.w 0;
@@ -410,6 +440,13 @@ let identity_removal (e:expr) : expr =
       if b < 1 || b > 9 then (Literal 0) else e
    | _ -> e
 
+let identity_correctness (e:expr) (iv:input_vals) 
+ : Lemma (requires Some? (eval_expr e iv))
+         // Some transformations only valid if the program is
+         // valid and does not divide by zero.
+         (ensures ( eval_expr e iv = eval_expr (identity_removal e) iv))
+ = ()
+
 let rec simplify_identity (e:expr) : expr =
   match e with
    | AddOp a b -> (identity_removal (AddOp (simplify_identity a) (simplify_identity b)))
@@ -424,6 +461,43 @@ let rec simplify_identity (e:expr) : expr =
         else IfEqElse (identity_removal a) (identity_removal b) t' f'
    | Literal i -> Literal i
    | InputValue  i -> InputValue i
+
+let rec simplify_identity_correctness (e:expr) (iv:input_vals) 
+ : Lemma (requires Some? (eval_expr e iv))
+         // Some transformations only valid if the program is
+         // valid and does not divide by zero.
+         (ensures ( eval_expr e iv = eval_expr (simplify_identity e) iv))
+ = match e with
+   | AddOp a b -> simplify_identity_correctness a iv;
+                 simplify_identity_correctness b iv;
+                 identity_correctness (AddOp (simplify_identity a) (simplify_identity b)) iv
+   | MulOp a b -> simplify_identity_correctness a iv;
+                 simplify_identity_correctness b iv;
+                 identity_correctness (MulOp (simplify_identity a) (simplify_identity b)) iv
+   | DivOp a b -> simplify_identity_correctness a iv;
+                 simplify_identity_correctness b iv;
+                 identity_correctness (DivOp (simplify_identity a) (simplify_identity b)) iv
+   | ModOp a b -> simplify_identity_correctness a iv;
+                 simplify_identity_correctness b iv;
+                 identity_correctness (ModOp (simplify_identity a) (simplify_identity b)) iv
+   | EqlOp a b -> simplify_identity_correctness a iv;
+                 simplify_identity_correctness b iv;
+                 identity_correctness (EqlOp (simplify_identity a) (simplify_identity b)) iv
+   | IfEqElse a b t f -> (
+                 // Need to match the structure of the evaluation because 
+                 // the precondition to "identity_correctness t" is not met if the expression
+                 // is always false, and vice versa.
+                 identity_correctness a iv;
+                 identity_correctness b iv;
+                 match ( eval_expr a iv, eval_expr b iv) with
+                  | Some av, Some bv -> if av = bv then 
+                     identity_correctness t iv
+                    else
+                     identity_correctness f iv
+                  | _ -> ()
+                 )
+   | _ -> ()
+
 
 let _ = assert_norm 
   (simplify_identity  
@@ -467,22 +541,50 @@ let rec constant_fold (e:expr{AddOp? e}) (l:int) : option expr =
   )
   | AddOp x y ->
     None
-           
+
+let rec constant_fold_correct (e:expr{AddOp? e}) (iv:input_vals) (l:int) :
+  Lemma (requires Some? (eval_expr e iv) /\ Some? (constant_fold e l))
+        (ensures Some? (eval_expr (Some?.v (constant_fold e l)) iv) /\
+                 l + (Some?.v (eval_expr e iv)) = 
+                 Some?.v (eval_expr (Some?.v (constant_fold e l)) iv))                 
+  = match e with
+  // handle all the recursive cases
+  | AddOp (AddOp a1 b1) (AddOp a2 b2) -> (
+     match constant_fold (AddOp a2 b2) l with
+     | Some _ -> constant_fold_correct (AddOp a2 b2) iv l
+     | None -> assert (Some? (constant_fold (AddOp a1 b1) l));
+              constant_fold_correct (AddOp a1 b1) iv l
+     )
+  // need to specifically exclude these from the next case
+  | AddOp a (Literal b) -> ()
+  | AddOp (Literal a) b -> ()
+  | AddOp x (AddOp a b) ->
+     constant_fold_correct (AddOp a b) iv l
+  | AddOp (AddOp a b) y -> 
+     constant_fold_correct (AddOp a b) iv l
+        
 let simplify_addition (e:expr) : expr =
   match e with
   | AddOp (Literal x) (AddOp a b) 
   | AddOp (AddOp a b) (Literal x) -> (
      match constant_fold (AddOp a b) x with
-     | None -> (AddOp (AddOp a b) (Literal x))
+     | None -> (AddOp (AddOp a b) (Literal x)) // TODO: maybe this doesn't handle + 0 ?
      | Some f -> simplify_identity f       
   )
   | _ -> simplify_identity e
 
-let simplify_add_mod (e:expr) : expr = 
+let simplify_addition_correctness (e:expr) (iv:input_vals) 
+ : Lemma (requires Some? (eval_expr e iv))
+         (ensures ( eval_expr e iv = eval_expr (simplify_addition e) iv)) =
   match e with
-  | AddOp a (ModOp b m) -> (ModOp (simplify_addition (AddOp a b)) m)
-  | AddOp (ModOp a m) b -> (ModOp (simplify_addition (AddOp a b)) m)
-  | _ -> simplify_addition e
+  | AddOp (Literal x) (AddOp a b) 
+  | AddOp (AddOp a b) (Literal x) -> (
+     match constant_fold (AddOp a b) x with
+     | None -> ()
+     | Some f -> constant_fold_correct (AddOp a b) iv x;
+                simplify_identity_correctness f iv
+    )
+  | other -> simplify_identity_correctness other iv
 
 let rec bound_value (e:expr) : option (int*int) =
   match e with
@@ -494,6 +596,18 @@ let rec bound_value (e:expr) : option (int*int) =
     )
   | _ -> None
 
+let rec bound_correctness (e:expr) (iv:input_vals): Lemma
+  (requires Some? (bound_value e) /\ Some? (eval_expr e iv))
+  (ensures Some?.v (eval_expr e iv) >= (fst (Some?.v (bound_value e))) /\
+           Some?.v (eval_expr e iv) <= (snd (Some?.v (bound_value e))))
+   = match e with
+     | AddOp x y ->
+        assert( Some? (bound_value x));
+        assert( Some? (bound_value y));
+        bound_correctness x iv;
+        bound_correctness y iv
+     | _ -> ()
+
 let simplify_div (e:expr) : expr = 
   match e with
   | DivOp (AddOp (MulOp x (Literal m1)) z) (Literal m2) ->
@@ -501,41 +615,127 @@ let simplify_div (e:expr) : expr =
      if m1 = m2 then
         (match bound_value z with
           | Some (lo_z, up_z) ->
-             if lo_z >= 0 && up_z < m1 then x else simplify_add_mod e
-          | None -> simplify_add_mod e)             
+             if lo_z >= 0 && up_z < m1 then x else simplify_addition e
+          | None -> simplify_addition e)             
      else
-        simplify_add_mod e
+        simplify_addition e
   | ModOp (AddOp (MulOp x (Literal m1)) z) (Literal m2) ->
      // ( (x * m1) + z) / m1 = x if z < m1
      if m1 = m2 then
         (match bound_value z with
           | Some (lo_z, up_z) ->
-             if lo_z >= 0 && up_z < m1 then z else simplify_add_mod e
-          | None -> simplify_add_mod e)             
+             if lo_z >= 0 && up_z < m1 then z else simplify_addition e
+          | None -> simplify_addition e)             
      else
-        simplify_add_mod e
+        simplify_addition e
   | DivOp a (Literal b) ->
      (match bound_value a with
       | Some (lo_a, up_a) ->
-          if lo_a >= 0 && up_a < b then (Literal 0) else simplify_add_mod e
-      | None -> simplify_add_mod e
+          if lo_a >= 0 && up_a < b then (Literal 0) else simplify_addition e
+      | None -> simplify_addition e
      )
-  | _ -> simplify_add_mod e
-  
-let set_value_add (regs:alu_registers) (v:var_name) (e:expr) 
- : Tot alu_registers = 
- match v with
-  | W -> {regs with w = simplify_add_mod e}
-  | X -> {regs with x = simplify_add_mod e}
-  | Y -> {regs with y = simplify_add_mod e}
-  | Z -> {regs with z = simplify_add_mod e}
+  | _ -> simplify_addition e
+
+#push-options "--z3rlimit 60"
+let simplify_div_correctness (e:expr) (iv:input_vals) 
+ : Lemma (requires Some? (eval_expr e iv))
+         (ensures ( eval_expr e iv = eval_expr (simplify_div e) iv)) =
+  match e with 
+  | DivOp (AddOp (MulOp x (Literal m1)) z) (Literal m2) ->
+    if m1 = m2 then
+        (match bound_value z with
+          | Some (lo_z, up_z) ->
+             bound_correctness z iv;
+             if lo_z >= 0 && up_z < m1 then (
+                //assert (Some? (eval_expr e iv));
+                //assert (Some? (eval_expr (AddOp (MulOp x (Literal m1)) z) iv));
+                //assert (Some? (eval_expr (MulOp x (Literal m1)) iv));
+                //assert (Some? (eval_expr x iv));
+                let x_val = Some?.v (eval_expr x iv) in
+                let z_val = Some?.v (eval_expr z iv) in
+                // let prodplus = Some?.v (eval_expr (AddOp (MulOp x (Literal m1)) z) iv) in
+                // assert( z_val >= 0 );
+                // assert( z_val < m1 );
+                Math.Lemmas.lemma_div_plus z_val x_val m1;
+                Math.Lemmas.small_div z_val m1;              
+                // assert( prodplus = z_val + op_Multiply x_val m1);
+                // assert( prodplus / m1 = x_val );
+                // assert( eval_expr e iv = eval_expr x iv );
+                ()
+             ) else 
+                simplify_addition_correctness e iv
+          | None -> simplify_addition_correctness e iv)               
+    else
+      simplify_addition_correctness e iv
+  | DivOp a (Literal b) ->
+    (match bound_value a with
+      | Some (lo_a, up_a) -> 
+         bound_correctness a iv;
+         if lo_a >= 0 && up_a < b then
+            Math.Lemmas.small_div (Some?.v (eval_expr a iv)) b
+         else
+            simplify_addition_correctness e iv
+      | None -> simplify_addition_correctness e iv
+    )
+  | ModOp (AddOp (MulOp x (Literal m1)) z) (Literal m2) ->
+    if m1 = m2 then
+        (match bound_value z with
+          | Some (lo_z, up_z) ->
+              bound_correctness z iv;
+              if lo_z >= 0 && up_z < m1 then (
+                let x_val = Some?.v (eval_expr x iv) in
+                let z_val = Some?.v (eval_expr z iv) in
+                Math.Lemmas.lemma_mod_plus z_val x_val m1;
+                Math.Lemmas.small_mod z_val m1
+              ) else
+                simplify_addition_correctness e iv
+          | None -> simplify_addition_correctness e iv
+        )
+    else
+      simplify_addition_correctness e iv
+  | _ -> simplify_addition_correctness e iv
+#pop-options
 
 let is_equality_known (a:expr) (b:expr) : option bool =
   match (a,b) with
   | (InputValue _),(Literal y) -> if y < 1 || y > 9 then Some false else None
   | (Literal y),(InputValue _) -> if y < 1 || y > 9 then Some false else None
   | (Literal x),(Literal y) -> if x = y then Some true else Some false
+  | (AddOp (InputValue _) (Literal y)),(InputValue _) ->
+       // Maximum is first input value is 1 and second is 9
+       if y > 8 then Some false 
+       else if y < (-8) then Some false
+       else None
+  | (AddOp (ModOp (AddOp (InputValue _) (Literal k)) (Literal 26)) (Literal y)),(InputValue _) ->
+       // Maximum is first input value is 1 and second is 9
+       let lb = 1 + k in
+       let ub = 9 + k in
+       if lb < 0 then
+          None
+       else if ub >= 26 then
+          None
+       else
+          // Cannot happen if lb+y > 9 or
+          // ub+y < 1
+          if (lb+y) > 9 || (ub+y) < 1 then
+             Some false // cannot happen
+          else 
+             None // might happen
   | _ -> None
+
+let is_equality_known_correct (a:expr) (b:expr) (iv:input_vals) 
+ : Lemma (requires (Some? (is_equality_known a b)) /\
+                   (Some? (eval_expr a iv)) /\
+                   (Some? (eval_expr b iv)))                 
+         (ensures (Some?.v (is_equality_known a b ) ==> (Some?.v (eval_expr (EqlOp a b) iv) = 1)) /\
+                  (~ (Some?.v (is_equality_known a b )) ==> (Some?.v (eval_expr (EqlOp a b) iv) = 0))) =
+  match (a,b) with
+  | (AddOp (ModOp (AddOp (InputValue _) (Literal k)) (Literal 26)) (Literal y)),(InputValue _) ->
+    let lb = 1 + k in
+    let ub = 9 + k in
+    Math.Lemmas.small_mod lb 26; 
+    Math.Lemmas.small_mod ub 26      
+  | _ -> ()
 
 // If both branches are the same, then elide the comparison
 let check_case_equality (x1:expr) (y1:expr) (t1:expr) (f1:expr) : expr =
@@ -572,6 +772,10 @@ let rec push_op_into_tree (op:expr->expr->expr) (arg1:expr) (arg2:expr) : expr =
     check_case_equality x1 y1 (push_op_into_tree op t1 b) (push_op_into_tree op f1 b)
   | (a, IfEqElse x2 y2 t2 f2) ->
     check_case_equality x2 y2 (push_op_into_tree op a t2) (push_op_into_tree op a f2)
+  | (IfEqElse x1 y1 t1 f1, b) ->    
+    check_case_equality x1 y1 (push_op_into_tree op t1 b) (push_op_into_tree op f1 b)
+  | (a, IfEqElse x2 y2 t2 f2) ->
+    check_case_equality x2 y2 (push_op_into_tree op a t2) (push_op_into_tree op a f2)
   | (a, b) ->
     match (simplify_identity (op a b)) with
     | EqlOp z1 z2 ->
@@ -581,6 +785,99 @@ let rec push_op_into_tree (op:expr->expr->expr) (arg1:expr) (arg2:expr) : expr =
        | Some true -> Literal 1
       )
     | e -> (simplify_div e)
+
+let rec push_op_correctness (arg1:expr) (arg2:expr) (iv:input_vals)
+ : Lemma (requires (Some? (eval_expr (AddOp arg1 arg2) iv)))
+         (ensures (eval_expr (AddOp arg1 arg2) iv) =
+                  (eval_expr (push_op_into_tree AddOp arg1 arg2) iv))
+  = match (arg1, arg2) with
+  | (IfEqElse x1 y1 t1 f1, IfEqElse x2 y2 t2 f2) ->
+    if x1 = x2 && y1 = y2 then (   
+      if (eval_expr x1 iv) = (eval_expr y1 iv) then (
+         assert( eval_expr (AddOp arg1 arg2) iv =
+                 eval_expr (AddOp t1 t2) iv);
+         push_op_correctness t1 t2 iv
+      ) else        
+         push_op_correctness f1 f2 iv
+    ) else ( 
+      if (eval_expr x1 iv) = (eval_expr y1 iv) then (
+         push_op_correctness t1 (IfEqElse x2 y2 t2 f2) iv
+      ) else (
+         push_op_correctness f1 (IfEqElse x2 y2 t2 f2) iv
+      )
+    )
+  | (IfEqElse x1 y1 t1 f1, b) ->    
+    if (eval_expr x1 iv) = (eval_expr y1 iv) then (
+      push_op_correctness t1 b iv
+    ) else 
+      push_op_correctness f1 b iv      
+  | (a, IfEqElse x2 y2 t2 f2) ->
+    if (eval_expr x2 iv) = (eval_expr y2 iv) then
+      push_op_correctness a t2 iv
+    else 
+      push_op_correctness a f2 iv     
+  | (a, b) -> 
+     simplify_identity_correctness (AddOp a b) iv;
+     match simplify_identity (AddOp a b) with
+     | EqlOp z1 z2 -> ( match is_equality_known z1 z2 with
+         | None -> ()
+         | Some _ -> is_equality_known_correct z1 z2 iv
+       )
+     | _ -> simplify_div_correctness (simplify_identity (AddOp a b)) iv
+
+
+// What properties do we need from the operator to make the proof above generalize?
+type op_constructor = (f:(expr->expr->expr){
+  forall a b iv . 
+  Some? (eval_expr a iv) /\
+  Some? (eval_expr b iv) 
+  ==>
+  (eval_expr (f a b) iv) =
+             (eval_expr (f (Literal (Some?.v (eval_expr a iv)))
+                           (Literal (Some?.v (eval_expr b iv)))) iv)
+})
+
+[@@expect_failure]
+let rec push_op_correctness_2 (op:op_constructor) (arg1:expr) (arg2:expr) (iv:input_vals)
+ : Lemma (requires (Some? (eval_expr (op arg1 arg2) iv)))
+         (ensures (eval_expr (op arg1 arg2) iv) =
+                  (eval_expr (push_op_into_tree op arg1 arg2) iv))
+  = match (arg1, arg2) with
+  | (IfEqElse x1 y1 t1 f1, IfEqElse x2 y2 t2 f2) ->
+    if x1 = x2 && y1 = y2 then (   
+      if (eval_expr x1 iv) = (eval_expr y1 iv) then (
+         assert( eval_expr (op arg1 arg2) iv =
+                 eval_expr (op (IfEqElse x1 y1 t1 f1) (IfEqElse x2 y2 t2 f2)) iv);
+         assert( eval_expr (op arg1 arg2) iv =
+                 eval_expr (op t1 t2) iv);
+         push_op_correctness t1 t2 iv
+      ) else        
+         push_op_correctness f1 f2 iv
+    ) else ( 
+      if (eval_expr x1 iv) = (eval_expr y1 iv) then (
+         push_op_correctness t1 (IfEqElse x2 y2 t2 f2) iv
+      ) else (
+         push_op_correctness f1 (IfEqElse x2 y2 t2 f2) iv
+      )
+    )
+  | (IfEqElse x1 y1 t1 f1, b) ->    
+    if (eval_expr x1 iv) = (eval_expr y1 iv) then (
+      push_op_correctness t1 b iv
+    ) else 
+      push_op_correctness f1 b iv      
+  | (a, IfEqElse x2 y2 t2 f2) ->
+    if (eval_expr x2 iv) = (eval_expr y2 iv) then
+      push_op_correctness a t2 iv
+    else 
+      push_op_correctness a f2 iv     
+  | (a, b) -> 
+     simplify_identity_correctness (op a b) iv;
+     match simplify_identity (op a b) with
+     | EqlOp z1 z2 -> ( match is_equality_known z1 z2 with
+         | None -> ()
+         | Some _ -> is_equality_known_correct z1 z2 iv
+       )
+     | _ -> simplify_div_correctness (simplify_identity (op a b)) iv
 
 let set_value (regs:alu_registers) (v:var_name) (op:expr->expr->expr) (arg1:expr) (arg2:expr)
   : alu_registers =
@@ -631,41 +928,177 @@ type init_registers = {
   next_input=0;
 }
 
-let rec sign (e:expr) : some (z:int{z = 0 /\ z = (-1) /\ z = 1})  =
+// We can't use an integer type here because
+// there's no way to pattern match on Some (-1)!
+type sign =
+  | Unknown
+  | Positive
+  | Negative
+  | Zero
+
+let rec sign_of (e:expr) : sign =
   match e with 
-  | InputValue _ -> Some 1
-  | Literal z -> if z = 0 then Some 0 else
-    if z < 0 then Some (-1) else Some 1
+  | InputValue _ -> Positive
+  | Literal z -> if z = 0 then Zero else
+    if z < 0 then Negative else Positive
   | AddOp a b -> (
-    match (sign a, sign b) with
-    | None -> None
-    | (Some (-1),Some (-1)) -> Some (-1)
-    | (Some 1,Some 1) -> Some 1
-    | (Some 0,Some s) -> Some s
-    | (Some s,Some 0) -> Some s
-    | _ -> None
-  | MulOp a b -> (
-    match (sign a, sign b) with
-    | None -> None
-    | (Some 1,Some 1) -> Some 1
-    | (Some 0,Some s) -> Some 0
-    | (Some s,Some 0) -> Some 0
-    | (Some (-1),Some (-1)) -> Some 1
-    | (Some 1, Some (-1)) -> Some (-1)
-    | (Some (-1), Some 1) -> Some (-1)
+    match (sign_of a, sign_of b) with
+    | (Negative,Negative) -> Negative
+    | (Positive,Positive) -> Positive
+    | (Zero,s) -> s
+    | (s,Zero) -> s
+    | _ -> Unknown
   )
-  | DivOp _ _ -> None
-  | ModOp _ _ -> None
-  | EqlOp _ _ -> None
-  | IfThenElse _ _ _ _  -> None
-
-let find_zeros (e:expr) (conditions:list (bool*expr)) : ML unit =
+  | MulOp a b -> (
+    match (sign_of a, sign_of b) with
+    | (Positive,Positive) -> Positive
+    | (Zero,_) -> Zero
+    | (_,Zero) -> Zero
+    | (Negative,Negative) -> Positive
+    | (Positive,Negative) -> Negative
+    | (Negative,Positive) -> Negative
+    | _ -> Unknown
+  )
+  | DivOp _ _ -> Unknown
+  | ModOp _ _ -> Unknown
+  | EqlOp _ _ -> Unknown
+  | IfEqElse _ _ _ _  -> Unknown
   
+let rec print_equalities (conditions:list (bool*expr*expr)) : ML unit =
+  match conditions with
+  | [] -> ()
+  | (eq,x,y) :: tl -> 
+    print_expr x 0;
+    (if eq then print_string " == " else print_string " <> ");
+    print_expr y 0;
+    (if List.Tot.length tl > 0 then print_string " /\\\n" else print_string "\n");
+    print_equalities tl
 
+// True if expression only uses input <= input_num
+let rec expr_uses_inputs_up_to (input_num:int) (e:expr) : Tot bool =
+ match e with
+ | InputValue i -> i <= input_num
+ | Literal _ -> true
+ | AddOp a b 
+ | MulOp a b 
+ | DivOp a b 
+ | ModOp a b 
+ | EqlOp a b -> expr_uses_inputs_up_to input_num a &&
+               expr_uses_inputs_up_to input_num b
+ | IfEqElse x y t f ->
+      expr_uses_inputs_up_to input_num x &&
+      expr_uses_inputs_up_to input_num y &&
+      expr_uses_inputs_up_to input_num t &&
+      expr_uses_inputs_up_to input_num f
 
+let rec print_list_aux (l:list int) : ML unit =
+  match l with
+  | [] -> ()
+  | hd :: [] -> print_string (sprintf "%d" hd)
+  | hd :: tl -> print_string (sprintf "%d; " hd);
+               print_list_aux tl
+  
+let print_list (l:list int) : ML unit =
+  print_string "[";
+  print_list_aux l;
+  print_string "]"
+
+let rec largest_input (vals:input_vals) (n:int{1 <= n /\ n <= 9}) 
+  (conditions:list (bool*expr*expr)) : ML (option input_vals) =
+  //print_string "Trying ";
+  //print_list (List.Tot.list_unref vals);
+  //print_string (sprintf " @ [%d]\n" n ); 
+  if List.Tot.length vals = 14 then
+    Some vals
+  else let attempt = List.Tot.snoc (vals,n) in
+       let var_index = List.Tot.length vals in
+       let applicable = List.Tot.filter 
+          (fun (e,x,y) -> expr_uses_inputs_up_to var_index x &&
+          expr_uses_inputs_up_to var_index y )
+          conditions in
+       //print_string (sprintf "%d applicable constraints\n" (List.Tot.length applicable));
+       if List.Tot.for_all 
+          (fun (e,x,y) -> 
+            if e then 
+               eval_expr x attempt = eval_expr y attempt
+            else
+               eval_expr x attempt <> eval_expr y attempt
+          )
+          applicable then
+          // it worked, try next variable
+          match (largest_input attempt 9 conditions) with
+          | Some l -> Some l  // sub-problem succeeded
+          | None ->           // sub-problem failed, try the next value
+             if n = 1 then None else
+             (largest_input vals (n-1) conditions)             
+       else   
+          // Value is wrong, try next-smallest
+          if n = 1 then None else
+          (largest_input vals (n-1) conditions)             
+
+let rec smallest_input (vals:input_vals) (n:int{1 <= n /\ n <= 9}) 
+  (conditions:list (bool*expr*expr)) : ML (option input_vals) =
+  //print_string "Trying ";
+  //print_list (List.Tot.list_unref vals);
+  //print_string (sprintf " @ [%d]\n" n ); 
+  if List.Tot.length vals = 14 then
+    Some vals
+  else let attempt = List.Tot.snoc (vals,n) in
+       let var_index = List.Tot.length vals in
+       let applicable = List.Tot.filter 
+          (fun (e,x,y) -> expr_uses_inputs_up_to var_index x &&
+          expr_uses_inputs_up_to var_index y )
+          conditions in
+       //print_string (sprintf "%d applicable constraints\n" (List.Tot.length applicable));
+       if List.Tot.for_all 
+          (fun (e,x,y) -> 
+            if e then 
+               eval_expr x attempt = eval_expr y attempt
+            else
+               eval_expr x attempt <> eval_expr y attempt
+          )
+          applicable then
+          // it worked, try next variable
+          match (smallest_input attempt 1 conditions) with
+          | Some l -> Some l  // sub-problem succeeded
+          | None ->           // sub-problem failed, try the next value
+             if n = 9 then None else
+             (smallest_input vals (n+1) conditions)             
+       else   
+          // Value is wrong, try next-smallest
+          if n = 9 then None else
+          (smallest_input vals (n+1) conditions)             
+
+let rec print_possible_zeros (e:expr) (conditions:list (bool*expr*expr)) : ML unit =
+  match e with
+  | IfEqElse x y t f -> 
+       print_possible_zeros t (List.Tot.snoc (conditions,(true,x,y)));
+       print_possible_zeros f (List.Tot.snoc (conditions,(false,x,y)))
+  | _ -> match sign_of e with
+     | Zero -> (
+        print_equalities conditions;
+        print_string "  ==> ";
+        print_expr e 0;
+        print_string "\n";
+        match largest_input [] 9 conditions with
+        | None -> print_string "unsatisfiable\n"
+        | Some l -> print_string "largest:\n"; print_list (List.Tot.list_unref l); print_string "\n"
+        ;
+        match smallest_input [] 1 conditions with
+        | None -> print_string "unsatisfiable\n"
+        | Some l -> print_string "smallest:\n"; print_list (List.Tot.list_unref l); print_string "\n"        
+     )
+     | Unknown ->
+        print_equalities conditions;
+        print_string "  ?? ==> ";
+        print_expr e 0;
+        print_string "\n"       
+     | _ -> ()
+     
 let print_program () : ML unit =
   let regs = symbolic_execution input_program init_registers in
-    print_expr regs.z 0
+    //print_expr regs.z 0
+    print_possible_zeros regs.z []
 
 let _ = print_program()
 
