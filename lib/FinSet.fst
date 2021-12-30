@@ -3,43 +3,40 @@ module FinSet
 open FStar.BV
 module L = FStar.List.Tot
 
-// This type allows you to specify the N elements that belong to the set.
-// They are represented by a bitvector of that length, so that they have
-// decidable equality.
-type finite_set #a (n:pos) (univ:(list a){L.length univ = n}) = bv_t n
+// Computable sets on 0, 1, ..., N-1.
+// Maybe some utilities to give those elements other representations
+
+
+type finite_set (n:pos) = bv_t n
 
 let bvweight (#n:pos) (v:bv_t n) : nat =
   L.count true (bv2list v)
 
-let cardinality #a #n #univ (s:finite_set #a n univ) : nat =
+let cardinality #n(s:finite_set n) : nat =
   bvweight s
 
-let cardinality_by_case #a (n:nat{n>1}) univ (s:finite_set #a n univ) :
-  Lemma (requires (L.hd (bv2list s)) = true)
-        (ensures cardinality #a #(n-1) #(L.tl univ) (list2bv (L.tl (bv2list s))) = 
-                 cardinality s - 1) =
-    assert( L.count true (L.tl (bv2list s)) =
-            L.count true (bv2list s) - 1);
-    admit()
- 
-let rec list_of_finite_set_aux #a #n #univ (s:finite_set #a n univ) : (l:(list a){L.length l = cardinality s}) =
-  if n = 1 then
-    let v = bv2list s in
-      if L.hd v then (
-         (L.hd univ) :: []
-      ) else 
-         []
-  else (
-    let v = bv2list s in
-      if L.hd v then let rest = list_of_finite_set_aux #a #(n-1) #(L.tl univ) (list2bv (L.tl v)) in (
-         assert( cardinality #a #(n-1) #(L.tl univ) (list2bv (L.tl v)) = cardinality s - 1);
-         (L.hd univ) ::  rest
-      ) else 
-         list_of_finite_set_aux #a #(n-1) #(L.tl univ) (list2bv (L.tl v))
-  )   
+let rec list_of_aux (n:pos) (i:nat{i<=n}) (l:(list bool){i + L.length l = n}) : 
+  Tot (r:(list (e:nat{e < n})){L.length r = L.count true l})
+      (decreases l) = 
+   match l with
+   | [] -> []
+   | hd :: tl -> if hd then
+       i :: (list_of_aux n (i+1) tl)
+     else
+       list_of_aux n (i+1) tl
 
-let list_of_finite_set #a #n #univ (s:finite_set a n univ) : (l:(list a){L.length l = cardinality s}) = 
-  admit()
+let list_of #n (s:finite_set n) : (l:(list (e:nat{e < n})){L.length l = cardinality s}) = 
+   list_of_aux n 0 (bv2list s)
+
+let union (#n:pos) (s1:finite_set n) (s2:finite_set n) : Tot (finite_set n) =
+  bvor s1 s2
+
+let intersection (#n:pos) (s1:finite_set n) (s2:finite_set n) : Tot (finite_set n) =
+  bvand s1 s2
+
+let mem (#n:pos) (i:nat{i<n}) (s:finite_set n) =
+  
+
 
 let bvhead (#n:pos) (v:bv_t n) : bool =
    hd (bv2list v)
