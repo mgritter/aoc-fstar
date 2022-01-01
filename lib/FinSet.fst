@@ -1,57 +1,73 @@
 module FinSet
 
-open FStar.BV
+open FStar.Tactics
 module L = FStar.List.Tot
 
 // Computable sets on 0, 1, ..., N-1.
 // Maybe some utilities to give those elements other representations
+// These are represented as (sorted) lists to make it easier to reason about!
+// In the future they could be represented by bitvectors instead, but
+// bv_t lacks an easy membership operator.
 
+let rec members_are_unique (#a:eqtype) (l:list a) : Tot bool =
+  match l with 
+  | [] -> true
+  | hd :: tl -> if L.mem hd tl then false else
+      members_are_unique tl
 
-type finite_set (n:pos) = bv_t n
+type finite_set (n:pos) = (l:(list (e:nat{e<n})){members_are_unique l})
 
-let bvweight (#n:pos) (v:bv_t n) : nat =
-  L.count true (bv2list v)
-
-let cardinality #n(s:finite_set n) : nat =
-  bvweight s
-
-let rec list_of_aux (n:pos) (i:nat{i<=n}) (l:(list bool){i + L.length l = n}) : 
-  Tot (r:(list (e:nat{e < n})){L.length r = L.count true l})
-      (decreases l) = 
-   match l with
-   | [] -> []
-   | hd :: tl -> if hd then
-       i :: (list_of_aux n (i+1) tl)
-     else
-       list_of_aux n (i+1) tl
+let cardinality #n (s:finite_set n) : nat = L.length s
 
 let list_of #n (s:finite_set n) : (l:(list (e:nat{e < n})){L.length l = cardinality s}) = 
-   list_of_aux n 0 (bv2list s)
+   s
 
-let union (#n:pos) (s1:finite_set n) (s2:finite_set n) : Tot (finite_set n) =
-  bvor s1 s2
+let mem #n (i:nat{i<n}) (s:finite_set n) =
+  L.mem i s
 
-let intersection (#n:pos) (s1:finite_set n) (s2:finite_set n) : Tot (finite_set n) =
-  bvand s1 s2
+let unique_not_in_tail (#a:eqtype) (l:list a) (e:a) : 
+  Lemma (requires (members_are_unique l /\ ~ (L.mem e l)))
+        (ensures (members_are_unique (e :: l)))
+        = ()
 
-let mem (#n:pos) (i:nat{i<n}) (s:finite_set n) =
-  
+let rec union #n (s1:finite_set n) (s2:finite_set n) : 
+  Tot (u:(finite_set n){forall (x:nat{x<n}) . mem x u <==> ( mem x s1 \/ mem x s2 )}) =
+  match s1 with
+  | [] -> s2
+  | hd :: tl -> let u = union tl s2 in
+    if mem hd u then u else hd :: u
+    
+let rec intersection #n (s1:finite_set n) (s2:finite_set n) : 
+  Tot (u:(finite_set n){forall (x:nat{x<n}) . mem x u <==> ( mem x s1 /\ mem x s2 )}) =
+  match s1 with
+  | [] -> []
+  | hd :: tl -> let rest = intersection tl s2 in
+    if mem hd s2 then hd :: rest else rest
+
+let rec difference #n (s1:finite_set n) (s2:finite_set n) : 
+  Tot (u:(finite_set n){forall (x:nat{x<n}) . mem x u <==> ( mem x s1 /\ ~(mem x s2) )}) =
+  match s1 with
+  | [] -> []
+  | hd :: tl -> let rest = difference tl s2 in
+    if mem hd s2 then rest else hd :: rest
+
+let rec universe_aux (n:pos) (i:pos{i<=n}) :
+  Tot (u:(finite_set n){(forall x . (mem x u <==> x < i))}) 
+      (decreases i) =
+  if i = 1 then 
+    let (z:finite_set n) = [0] in
+      assert (forall (x:nat{x<1}) . mem x z);
+      z
+  else
+    (i-1) :: ( universe_aux n (i-1))
+
+let universe (n:pos) :
+  Tot (u:(finite_set n){forall (x:nat{x<n}) . mem x u}) =
+  universe_aux n n
+
+let complement #n (s1:finite_set n) :
+  Tot (u:(finite_set n){forall (x:nat{x<n}) . mem x u <==> ~ (mem x s1)}) =
+  difference (universe n) s1
 
 
-let bvhead (#n:pos) (v:bv_t n) : bool =
-   hd (bv2list v)
 
-let bvtail (#n:pos{n>1}) (v:bv_t n) : (bv_t (n-1)) =
-   (list2bv (tl (bv2list v)))
-
-let bvcons (#n:pos) (b:bool) (v:bv_t n) : (bv_t (n+1)) =   
-   (list2bv (Cons b (bv2list v)))
-
-let bvcons_ident (#n:pos{n>1}) (v:bv_t n) 
- : Lemma (ensures bvcons (bvhead v) (bvtail v) = v)
- = // (list2bv (Cons (bvhead v) (bvtail v)))
-   // (list2bv (Cons (bvhead v) (bvtail v)))
-   // (list2bv (Cons (hd (bv2list v) (bv2list (list2bv (tl (bv2list v)))))))
-   list2bv_bij #(n-1) (tl (bv2list v));
-   // (list2bv (Cons (hd (bv2list v) (tl (bv2list v)))))
-   bv2list_bij v
