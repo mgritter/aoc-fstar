@@ -293,7 +293,7 @@ TAC>> Term:
 TAC>> Tv_Abs ((x:Prims.int), Tv_Abs ((y:Prims.int), Tv_App (Tv_App (Tv_FVar Prims.op_Addition, Tv_Var (x:Prims.int)), Tv_Var (y:Prims.int))))
 ```
 
-Here's a more complicated complicated example:
+Here's a more complicated example:
 
 ```FStar
 let rec f (x:nat) : nat = if x = 0 then 2 else 3 + f (x - 1) in f(5)
